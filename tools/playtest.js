@@ -25,7 +25,8 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await p.waitForFunction(() => !document.querySelector('.tube.pouring'));
   }
 
-  for (const level of [2, 12, 31, 35, 47, 61]) {
+  // 16 big beaker, 26 mini tubes, 38 rocket boosters, 46 staircase.
+  for (const level of [2, 12, 16, 26, 31, 35, 38, 46, 47, 61]) {
     const p = await open(level);
     // The worker's puzzle must match the page's own copy of the generator.
     const sol = await p.evaluate((n) => {
@@ -141,6 +142,8 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     check(await gray(), 'dead-end pour grays the board');
     console.log(`stuck after ${plan.path.length} pour(s): "${await p.textContent('#say')}"`);
     check(await p.evaluate(() => document.getElementById('undoBtn').classList.contains('pulse')), 'undo pulses');
+    check((await p.textContent('#undoBadge')) === '1' && (await p.isVisible('#undoBadge')), 'undo button shows how many to undo');
+    check((await p.textContent('#say')).includes('every way from here gets stuck'), 'warning explains what a dead end is');
     const before = await moves(p);
     await tube(p, 0).click();
     await tube(p, 1).click();
@@ -152,6 +155,7 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       await p.waitForTimeout(400);
     }
     check(!(await gray()), 'board un-grays once the mix can be finished');
+    check(!(await p.isVisible('#undoBadge')), 'undo count goes away');
     check((await moves(p)) === before, 'undos keep the count');
     console.log(`  after undo: "${await p.textContent('#say')}"`);
     // Get stuck again, then see whether the extra tube rescues it.
@@ -164,6 +168,48 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     check((await gray()) === (plan.rescue === 'unsolvable'), `extra tube result matches the solver (${plan.rescue})`);
     console.log(`  after extra tube: "${await p.textContent('#say')}"`);
     await p.context().close();
+  }
+
+  // Every level is open, with more labs on request and a jump-to box.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const q = await ctx.newPage();
+    q.on('pageerror', (e) => errors.push(String(e)));
+    await q.goto(url);
+    await q.click('#levelsBtn');
+    const count = () => q.locator('.level-btn').count();
+    const first = await count();
+    check(first >= 70, `map shows every story lab (${first})`);
+    check((await q.locator('.level-btn:disabled').count()) === 0, 'no locked levels');
+    await q.click('.more-labs');
+    check((await count()) === first + 30, 'show more labs adds three labs');
+    await q.locator('.level-btn').nth(69).click();
+    await q.waitForSelector('.tube');
+    check((await q.textContent('#levelTitle')).includes('70'), 'level 70 playable from a fresh start');
+    await q.click('#homeBtn');
+    await q.click('#levelsBtn');
+    await q.fill('#jumpInput', '155');
+    await q.click('#jumpForm button');
+    await q.waitForSelector('.tube');
+    check((await q.textContent('#levelTitle')).includes('155'), 'jump to experiment 155');
+    // Custom boards make codes with a shape digit; old six-digit codes still work.
+    await q.click('#homeBtn');
+    await q.click('#customBtn');
+    await q.click('label:has(input[value="beaker"])');
+    await q.click('#mixBtn');
+    await q.waitForSelector('.tube');
+    const title = await q.textContent('#levelTitle');
+    check(/Lab code \d{5}01-\d+/.test(title), `beaker code has shape digit 1 (${title})`);
+    const tallest = await q.evaluate(() => Math.max(...[...document.querySelectorAll('.tube')].map((t) => t.offsetHeight)));
+    const shortest = await q.evaluate(() => Math.min(...[...document.querySelectorAll('.tube')].map((t) => t.offsetHeight)));
+    check(tallest > shortest * 1.5, 'big beaker is drawn taller');
+    await q.click('#homeBtn');
+    await q.click('#customBtn');
+    await q.fill('#codeInput', '064220-1234');
+    await q.click('#codeForm button');
+    await q.waitForSelector('.tube');
+    check((await q.textContent('#levelTitle')).includes('0642200-1234'), 'old code opens as a classic board');
+    await ctx.close();
   }
 
   // Leaving mid-pour or mid-celebration must not leak into the next screen.

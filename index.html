@@ -66,7 +66,7 @@
         <label class="toggle"><input id="soundToggle" type="checkbox" checked> <span>Sound</span></label>
         <label class="toggle"><input id="shapesToggle" type="checkbox"> <span>Color shapes</span></label>
       </div>
-      <p class="rules"><b>How to play:</b> tap a tube, then tap where to pour. You can pour onto the same color or into an empty tube.</p>
+      <p class="rules"><b>How to play:</b> tap a tube, then tap where to pour. You can pour onto the same color or into an empty tube. If the robot says <b>Dead end</b>, every way from there gets stuck, so undo.</p>
     </div>
   </section>
 
@@ -76,6 +76,11 @@
       <button class="icon-btn back" type="button" data-go="home" aria-label="Back to home"></button>
       <h2>Choose an experiment</h2>
     </header>
+    <form id="jumpForm" class="jump-form">
+      <label for="jumpInput">Go to experiment</label>
+      <input id="jumpInput" type="number" inputmode="numeric" min="1" max="9999" placeholder="47">
+      <button class="small-btn" type="submit">Go</button>
+    </form>
     <div id="labList" class="lab-list"></div>
   </section>
 
@@ -86,6 +91,14 @@
       <h2>Mix your own</h2>
     </header>
     <div class="custom-card">
+      <fieldset class="chips shapes">
+        <legend class="step-label">Board</legend>
+        <label><input type="radio" name="shape" value="classic" checked><span>Classic</span></label>
+        <label><input type="radio" name="shape" value="beaker"><span>Big beaker</span></label>
+        <label><input type="radio" name="shape" value="boosters"><span>Rocket boosters</span></label>
+        <label><input type="radio" name="shape" value="minis"><span>Mini tubes</span></label>
+        <label><input type="radio" name="shape" value="stairs"><span>Staircase</span></label>
+      </fieldset>
       <div class="stepper" data-key="colors">
         <span class="step-label">Colors</span>
         <button class="step-btn" type="button" data-step="-1" aria-label="Fewer colors">−</button>
@@ -117,7 +130,7 @@
       <form id="codeForm" class="code-form">
         <label for="codeInput">Have a lab code?</label>
         <div class="code-row">
-          <input id="codeInput" inputmode="numeric" autocomplete="off" placeholder="064220-1234" maxlength="11">
+          <input id="codeInput" inputmode="numeric" autocomplete="off" placeholder="0642200-1234" maxlength="12">
           <button class="small-btn" type="submit">Go</button>
         </div>
         <p id="codeError" class="note bad" hidden></p>
@@ -155,7 +168,7 @@
       <span>Mixing samples…</span>
     </div>
     <nav class="toolbar" aria-label="Lab tools">
-      <button id="undoBtn" class="tool" type="button" style="--tool:var(--sky)"><span class="tool-icon"></span><span class="tool-label">Undo</span></button>
+      <button id="undoBtn" class="tool" type="button" style="--tool:var(--sky)"><span class="tool-icon"></span><span class="tool-label">Undo</span><span class="badge" id="undoBadge" hidden></span></button>
       <button id="restartBtn" class="tool" type="button" style="--tool:var(--orange)"><span class="tool-icon"></span><span class="tool-label">Restart</span></button>
       <button id="hintBtn" class="tool" type="button" style="--tool:var(--sun)"><span class="tool-icon"></span><span class="tool-label">Hint</span><span class="badge" id="hintBadge"></span></button>
       <button id="tubeBtn" class="tool" type="button" style="--tool:var(--mint)"><span class="tool-icon"></span><span class="tool-label">Extra tube</span><span class="badge" id="tubeBadge"></span></button>

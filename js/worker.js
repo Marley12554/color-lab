@@ -8,7 +8,9 @@ self.onmessage = function (e) {
     let result;
     if (type === 'level') result = Core.generateLevel(payload.level);
     else if (type === 'custom') result = Core.generate(payload);
-    else if (type === 'solve') {
+    else if (type === 'check') {
+      result = Core.checkMix(payload.tubes, payload.cap, payload.history, { extraTube: payload.extraTube });
+    } else if (type === 'solve') {
       result = Core.solve(payload.tubes, payload.cap, { weight: 2, maxNodes: payload.maxNodes || 60000 });
     } else throw new Error('Unknown job ' + type);
     self.postMessage({ id, result });

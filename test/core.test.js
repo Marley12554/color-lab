@@ -95,6 +95,66 @@ test('the solver agrees with brute force on small puzzles', () => {
   assert.ok(solvable > 50 && unsolvable > 20, `${solvable} solvable, ${unsolvable} not`);
 });
 
+test('the solver agrees with brute force on every special board shape', () => {
+  for (const shape of ['beaker', 'boosters', 'minis', 'stairs']) {
+    let solvable = 0;
+    let unsolvable = 0;
+    for (let i = 0; i < 60; i++) {
+      const rng = C.makeRng(shape + i);
+      // Kept small so plain brute force stays quick.
+      const units = 3;
+      const colors = C.minColorsFor(shape) + rng.int(2);
+      const tubes = C.deal(colors, units, 0, rng, shape);
+      const board = tubes.board;
+      const plain = tubes.slice();
+      const shortest = bruteForce(plain, board);
+      const exact = C.solve(plain, board, { weight: 1, maxNodes: 1e6 });
+      if (shortest < 0) {
+        unsolvable++;
+        assert.equal(exact.status, 'unsolvable', `${shape} deal ${i}`);
+      } else {
+        solvable++;
+        assert.equal(exact.status, 'solved', `${shape} deal ${i}`);
+        assert.equal(exact.moves.length, shortest, `${shape} deal ${i} is not shortest`);
+        assert.ok(C.isSolved(replay(plain, board, exact.moves), board));
+      }
+    }
+    assert.ok(solvable > 5, `${shape}: ${solvable} solvable, ${unsolvable} not`);
+  }
+});
+
+test('small tubes cannot hold a finished color', () => {
+  const board = { caps: [4, 4, 2], units: 4 };
+  assert.equal(C.isSolved([[0, 0, 0, 0], [1, 1, 1, 1], []], board), true);
+  assert.equal(C.isSolved([[0, 0, 0, 0], [1, 1], [1, 1]], board), false);
+  // A pour into a small tube stops when it is full.
+  const tubes = [[1, 0, 0, 0], [1, 1, 1], []];
+  assert.equal(C.pour(tubes, board, 0, 2), 2);
+  assert.deepEqual(tubes[2], [0, 0]);
+});
+
+test('rescue counts the undos back to a position that can be finished', () => {
+  // A real report: lab code 126230-5922, where pouring two purples into the
+  // last empty tube (tube 3 into tube 4) leaves 12 reachable positions and
+  // none finished.
+  const before = [
+    [7, 0, 8, 8, 8, 8], [11, 11, 11], [4, 10, 1, 6, 8, 8], [], [2, 10, 10, 10, 10], [7, 0, 1, 1, 1, 1],
+    [7, 11, 0, 6, 4, 7], [9, 2, 9, 7, 7], [11, 11, 0, 4, 4, 4], [1, 4, 3, 6, 2, 2], [0, 2, 10, 6, 6, 6],
+    [2, 0, 9, 9, 9, 9], [5, 5, 5, 5, 5, 5], [3, 3, 3, 3, 3],
+  ];
+  const after = C.cloneTubes(before);
+  C.pour(after, 6, 2, 3);
+  assert.equal(C.solve(before, 6).status, 'solved');
+  assert.equal(C.solve(after, 6).status, 'unsolvable');
+  const older = C.cloneTubes(before);
+  const r = C.rescue(after, [older, before], 6, { extraTube: true });
+  assert.equal(r.undos, 1);
+  const withTube = { caps: Array(15).fill(6), units: 6 };
+  assert.equal(r.extraTube, C.solve(after.concat([[]]), withTube).status !== 'unsolvable');
+  // Nothing in the history can be finished: no undo count to offer.
+  assert.equal(C.rescue(after, [after], 6).undos, null);
+});
+
 test('the solver reports unknown when the budget runs out', () => {
   const tubes = C.deal(12, 6, 2, C.makeRng(3));
   const result = C.solve(tubes, 6, { maxNodes: 5 });
@@ -138,15 +198,33 @@ test('generated puzzles are solvable, fair, and use distinct lab colors', () => 
   }
 });
 
+test('special boards generate, can be finished, and keep their shape', () => {
+  for (const shape of ['beaker', 'boosters', 'minis', 'stairs']) {
+    for (const units of [4, 5, 6]) {
+      const colors = Math.min(8, C.maxColorsFor(units, 0, shape));
+      const p = C.generate({ colors, cap: units, empties: 0, shape, seed: `shape-${shape}-${units}` });
+      assert.ok(p, `no ${shape} puzzle at height ${units}`);
+      assert.equal(p.caps.length, p.tubes.length);
+      p.tubes.forEach((t, i) => assert.ok(t.length <= p.caps[i], `${shape} tube ${i} overfilled`));
+      const board = { caps: p.caps, units };
+      assert.ok(C.isSolved(replay(p.tubes, board, p.solution), board), `${shape} height ${units}`);
+      for (let c = 0; c < colors; c++) assert.equal(p.tubes.flat().filter((x) => x === c).length, units);
+      if (shape === 'beaker') assert.equal(Math.max(...p.caps), units * 2);
+      if (shape === 'minis') assert.ok(Math.min(...p.caps) < units);
+    }
+  }
+});
+
 test('the first 80 campaign levels generate and can be finished', () => {
   for (let level = 1; level <= 80; level++) {
     const spec = C.levelSpec(level);
     if (!spec.tutorial) {
-      assert.ok(spec.colors <= C.maxColorsFor(spec.cap, spec.empties), `level ${level} is too big`);
+      assert.ok(spec.colors <= C.maxColorsFor(spec.cap, spec.empties, spec.shape), `level ${level} is too big`);
     }
     const p = C.generateLevel(level);
     assert.ok(p && p.tubes, `level ${level}`);
-    assert.ok(C.isSolved(replay(p.tubes, p.cap, p.solution), p.cap), `level ${level}`);
+    const board = { caps: p.caps, units: p.units };
+    assert.ok(C.isSolved(replay(p.tubes, board, p.solution), board), `level ${level}`);
     assert.equal(p.par, p.solution.length);
   }
 });

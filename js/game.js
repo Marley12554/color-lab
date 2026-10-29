@@ -41,7 +41,6 @@
     restart: '<svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5"/><path d="M3.5 3.5v5h5"/></svg>',
     hint: '<svg viewBox="0 0 24 24"><path d="M9 18h6M10 21.5h4"/><path d="M12 2.5a6.5 6.5 0 0 0-3.8 11.8c.5.4.8 1 .8 1.6V16h6v-.1c0-.6.3-1.2.8-1.6A6.5 6.5 0 0 0 12 2.5z"/></svg>',
     tube: '<svg viewBox="0 0 24 24"><path d="M5 3h7"/><path d="M6 3v13.5a2.5 2.5 0 0 0 5 0V3"/><path d="M18 8v8M14 12h8"/></svg>',
-    lock: '<svg viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2h1a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1zm2.5 0h5V8a2.5 2.5 0 0 0-5 0z"/></svg>',
   };
 
   // Tube proportions, in tube widths.
@@ -60,6 +59,13 @@
     35: 'Mystery samples! Gray layers show their color when you uncover them.',
     45: 'Super tall tubes: 6 layers each!',
   };
+  const SHAPE_INTROS = {
+    beaker: 'A giant beaker! It holds twice as much as a tube.',
+    minis: 'Mini tubes! They hold only a little, and they must end up empty.',
+    boosters: 'Rocket boosters! The tall tubes at the ends start full.',
+    stairs: 'A staircase! Short tubes must end up empty. Tall ones have room to spare.',
+  };
+  const SHAPE_LABELS = { classic: 'Classic', beaker: 'Big beaker', boosters: 'Rocket boosters', minis: 'Mini tubes', stairs: 'Staircase' };
   const CHEERS = ["Let's sort these samples!", 'Ready, scientist?', 'Time for some science!', 'Sort it, pour it, seal it!', 'You can do it!'];
   const SEALS = ['Tube complete!', 'Sealed it!', 'Perfect pour!', 'Super sorting!', 'Nice one!'];
   const DIFFS = ['easy', 'medium', 'hard', 'genius'];
@@ -75,7 +81,7 @@
       best: {},
       sound: true,
       shapes: false,
-      custom: { colors: 6, cap: 4, empties: 2, difficulty: 'medium', mystery: false },
+      custom: { colors: 6, cap: 4, empties: 2, difficulty: 'medium', mystery: false, shape: 'classic' },
     };
   }
 
@@ -115,7 +121,9 @@
         try {
           if (type === 'level') resolve(Core.generateLevel(payload.level));
           else if (type === 'custom') resolve(Core.generate(payload));
-          else resolve(Core.solve(payload.tubes, payload.cap, { weight: 2, maxNodes: payload.maxNodes || 60000 }));
+          else if (type === 'check') {
+            resolve(Core.checkMix(payload.tubes, payload.cap, payload.history, { extraTube: payload.extraTube }));
+          } else resolve(Core.solve(payload.tubes, payload.cap, { weight: 2, maxNodes: payload.maxNodes || 60000 }));
         } catch (err) {
           reject(err);
         }
@@ -208,10 +216,14 @@
     $('shapesToggle').checked = saved.shapes;
   }
 
+  // Every level is open. The map shows the story labs, the endless labs up
+  // to one past the player's progress, and more on request.
+  let extraLabs = 0;
+
   function renderLevels() {
     const list = $('labList');
     list.innerHTML = '';
-    const lastLab = Core.labOf(saved.unlocked).index + 1;
+    const lastLab = Math.max(Core.LAB_COUNT, Core.labOf(saved.unlocked).index + 2) - 1 + extraLabs;
     for (let i = 0; i <= lastLab; i++) {
       const first = i * 10 + 1;
       const lab = Core.labOf(first);
@@ -226,25 +238,38 @@
       for (let n = first; n < first + 10; n++) {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'level-btn' + (n === saved.unlocked ? ' current' : '');
-        if (n > saved.unlocked) {
-          btn.disabled = true;
-          btn.innerHTML = ICONS.lock;
-          btn.setAttribute('aria-label', 'Experiment ' + n + ', locked');
-        } else {
-          const stars = saved.stars[n] || 0;
-          btn.innerHTML =
-            '<span>' + n + '</span><span class="mini-stars">' +
-            [1, 2, 3].map((s) => '<i class="' + (s <= stars ? 'on' : '') + '"></i>').join('') +
-            '</span>';
-          btn.setAttribute('aria-label', 'Experiment ' + n + ', ' + stars + ' stars');
-          btn.addEventListener('click', () => startLevel(n));
-        }
+        const spec = Core.levelSpec(n);
+        const special = spec.shape && spec.shape !== 'classic';
+        btn.className = 'level-btn' + (n === saved.unlocked ? ' current' : '') + (special ? ' special' : '');
+        const stars = saved.stars[n] || 0;
+        btn.innerHTML =
+          '<span>' + n + '</span><span class="mini-stars">' +
+          [1, 2, 3].map((s) => '<i class="' + (s <= stars ? 'on' : '') + '"></i>').join('') +
+          '</span>';
+        btn.setAttribute(
+          'aria-label',
+          'Experiment ' + n + (special ? ', ' + SHAPE_LABELS[spec.shape] : '') + ', ' + stars + (stars === 1 ? ' star' : ' stars')
+        );
+        btn.addEventListener('click', () => startLevel(n));
         grid.appendChild(btn);
       }
       list.appendChild(section);
     }
-    const current = list.querySelector('.current');
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'small-btn alt more-labs';
+    more.textContent = 'Show more labs';
+    more.addEventListener('click', () => {
+      extraLabs += 3;
+      const y = $('levels').scrollTop;
+      renderLevels();
+      $('levels').scrollTop = y;
+    });
+    list.appendChild(more);
+  }
+
+  function scrollToCurrent() {
+    const current = $('labList').querySelector('.current');
     if (current) current.scrollIntoView({ block: 'center' });
   }
 
@@ -252,44 +277,57 @@
 
   function clampCustom() {
     const c = saved.custom;
+    if (!SHAPE_LABELS[c.shape]) c.shape = 'classic';
     c.cap = Math.min(6, Math.max(3, c.cap));
     c.empties = Math.min(3, Math.max(1, c.empties));
-    const max = Core.maxColorsFor(c.cap, c.empties);
-    const clamped = c.colors > max;
-    c.colors = Math.min(max, Math.max(2, c.colors));
-    return { max, clamped };
+    const max = Core.maxColorsFor(c.cap, c.empties, c.shape);
+    const min = Core.minColorsFor(c.shape);
+    const clamped = c.colors > max || c.colors < min;
+    c.colors = Math.min(max, Math.max(min, c.colors));
+    return { max, min, clamped };
   }
 
   function renderCustom(clampedNow) {
     const c = saved.custom;
-    const { max } = clampCustom();
+    const { max, min } = clampCustom();
+    const classic = c.shape === 'classic';
     $('colorsOut').textContent = c.colors;
     $('capOut').textContent = c.cap;
-    $('emptiesOut').textContent = c.empties;
-    const limits = { colors: [2, max], cap: [3, 6], empties: [1, 3] };
+    $('emptiesOut').textContent = classic ? c.empties : '–';
+    const limits = { colors: [min, max], cap: [3, 6], empties: [1, 3] };
     document.querySelectorAll('.stepper').forEach((row) => {
       const key = row.dataset.key;
-      row.querySelector('[data-step="-1"]').disabled = c[key] <= limits[key][0];
-      row.querySelector('[data-step="1"]').disabled = c[key] >= limits[key][1];
+      const off = key === 'empties' && !classic;
+      row.querySelector('[data-step="-1"]').disabled = off || c[key] <= limits[key][0];
+      row.querySelector('[data-step="1"]').disabled = off || c[key] >= limits[key][1];
+    });
+    document.querySelectorAll('input[name="shape"]').forEach((r) => {
+      r.checked = r.value === c.shape;
     });
     const note = $('sizeNote');
-    note.hidden = !(c.empties === 1 || clampedNow);
-    note.textContent = 'With one empty tube, up to ' + max + ' colors fit in tubes this size.';
-    if (c.empties > 1 && clampedNow) note.textContent = 'Up to ' + max + ' colors.';
+    note.hidden = !(!classic || c.empties === 1 || clampedNow);
+    if (!classic) note.textContent = SHAPE_INTROS[c.shape] + ' This board brings its own empty space.';
+    else if (c.empties === 1) note.textContent = 'With one empty tube, up to ' + max + ' colors fit in tubes this size.';
+    else note.textContent = 'Up to ' + max + ' colors.';
     document.querySelectorAll('input[name="difficulty"]').forEach((r) => {
       r.checked = r.value === c.difficulty;
     });
     $('mysteryToggle').checked = c.mystery;
   }
 
+  // Lab codes: two digits of colors, then height, empty tubes, challenge,
+  // mystery, and board shape, then the seed. Codes made before board shapes
+  // existed have no shape digit and mean the classic board.
   function customCode(spec) {
+    const shape = Core.SHAPE_NAMES.indexOf(spec.shape || 'classic');
     return (
-      String(spec.colors).padStart(2, '0') + spec.cap + spec.empties + DIFFS.indexOf(spec.difficulty) + (spec.mystery ? 1 : 0) + '-' + spec.seed
+      String(spec.colors).padStart(2, '0') + spec.cap + spec.empties + DIFFS.indexOf(spec.difficulty) +
+      (spec.mystery ? 1 : 0) + Math.max(0, shape) + '-' + spec.seed
     );
   }
 
   function parseCode(text) {
-    const m = /^\s*(\d{2})(\d)(\d)(\d)([01])\s*-?\s*(\d{1,6})\s*$/.exec(text || '');
+    const m = /^\s*(\d{2})(\d)(\d)(\d)([01])(\d)?\s*-?\s*(\d{1,6})\s*$/.exec(text || '');
     if (!m) return null;
     const spec = {
       colors: +m[1],
@@ -297,10 +335,11 @@
       empties: +m[3],
       difficulty: DIFFS[+m[4]],
       mystery: m[5] === '1',
-      seed: +m[6],
+      shape: Core.SHAPE_NAMES[m[6] ? +m[6] : 0],
+      seed: +m[7],
     };
-    if (!spec.difficulty || spec.cap < 3 || spec.cap > 6 || spec.empties < 1 || spec.empties > 3) return null;
-    if (spec.colors < 2 || spec.colors > Core.maxColorsFor(spec.cap, spec.empties)) return null;
+    if (!spec.difficulty || !spec.shape || spec.cap < 3 || spec.cap > 6 || spec.empties < 1 || spec.empties > 3) return null;
+    if (spec.colors < Core.minColorsFor(spec.shape) || spec.colors > Core.maxColorsFor(spec.cap, spec.empties, spec.shape)) return null;
     return spec;
   }
 
@@ -317,7 +356,8 @@
     level: 1,
     custom: null,
     puzzle: null,
-    cap: 4,
+    // Each tube's height and the layers that make a finished color.
+    board: { caps: [], units: 4 },
     tubes: [],
     hidden: [],
     history: [],
@@ -415,6 +455,7 @@
         colors: spec.colors,
         cap: spec.cap,
         empties: spec.empties,
+        shape: spec.shape || 'classic',
         difficulty: spec.difficulty,
         seed: 'custom:' + spec.seed,
       });
@@ -433,11 +474,11 @@
   function setPuzzle(puzzle) {
     $('loading').hidden = true;
     game.puzzle = puzzle;
-    game.cap = puzzle.cap;
     game.palette = puzzle.palette;
     resetBoard();
     let line;
     if (game.mode === 'level' && INTROS[game.level]) line = INTROS[game.level];
+    else if (SHAPE_INTROS[puzzle.shape]) line = SHAPE_INTROS[puzzle.shape];
     else if (puzzle.mystery) line = 'Mystery samples! Gray layers show their color when you uncover them.';
     else line = pickFrom(CHEERS);
     say(line);
@@ -446,6 +487,8 @@
 
   function resetBoard() {
     const p = game.puzzle;
+    const units = p.units || p.cap;
+    game.board = { caps: (p.caps || p.tubes.map(() => units)).slice(), units };
     game.tubes = Core.cloneTubes(p.tubes);
     game.hidden = game.tubes.map((t) => (p.mystery ? t.length - Core.topRun(t).count : 0));
     game.history = [];
@@ -495,65 +538,98 @@
     renderAll();
   }
 
+  // Lays the tubes out in rows, each tube standing on its row's rack.
+  // Featured tubes get a column of their own that spans every row: one in
+  // the middle (the big beaker) or one at each end (rocket boosters).
   function layout() {
     const n = tubeEls.length;
     if (!n) return;
-    const cap = game.cap;
+    const caps = game.board.caps;
     const bw = board.clientWidth;
     const bh = board.clientHeight;
     if (!bw || !bh) return;
 
-    let best = null;
-    for (let rows = 1; rows <= Math.min(4, n); rows++) {
-      const per = Math.ceil(n / rows);
-      const byWidth = bw / (per + GAP_X * (per - 1));
-      const byHeight = bh / (rows * (cap * UNIT + NECK + LIFT) + (rows - 1) * GAP_Y);
-      const w = Math.min(byWidth, byHeight, MAX_W);
-      if (!best || w > best.w + 0.5) best = { rows, w };
+    const feat = (game.puzzle && game.puzzle.featured) || {};
+    const center = feat.center != null && feat.center < n ? feat.center : -1;
+    const ends = (feat.ends || []).filter((i) => i < n);
+    const special = new Set(center >= 0 ? ends.concat([center]) : ends);
+    const grid = [];
+    for (let i = 0; i < n; i++) if (!special.has(i)) grid.push(i);
+    const tall = (i) => caps[i] * UNIT + NECK; // in tube widths
+
+    const plan = (rows) => {
+      const rowsOf = [];
+      for (let r = 0, at = 0; r < rows; r++) {
+        const k = Math.ceil((grid.length - at) / (rows - r));
+        rowsOf.push(grid.slice(at, (at += k)));
+      }
+      const rowH = rowsOf.map((row) => Math.max(0, ...row.map(tall)) + LIFT);
+      const gridH = rowH.reduce((a, b) => a + b, 0) + (rows - 1) * GAP_Y;
+      const featH = Math.max(0, ...Array.from(special, (i) => tall(i) + LIFT));
+      const cols = (rowsOf[0] ? rowsOf[0].length : 0) + special.size;
+      const byWidth = bw / (cols + GAP_X * (cols - 1));
+      const byHeight = bh / Math.max(gridH, featH);
+      return { rowsOf, rowH, gridH, blockH: Math.max(gridH, featH), cols, w: Math.min(byWidth, byHeight, MAX_W) };
+    };
+    let best = plan(1);
+    for (let rows = 2; rows <= Math.min(4, grid.length); rows++) {
+      const p = plan(rows);
+      if (p.w > best.w + 0.5) best = p;
     }
+
     const w = Math.floor(best.w);
-    const th = w * (cap * UNIT + NECK);
     unit = w * UNIT;
     board.style.setProperty('--w', w + 'px');
     board.style.setProperty('--unit', unit + 'px');
+    const step = w * (1 + GAP_X);
+    const totalW = best.cols * w + (best.cols - 1) * w * GAP_X;
+    const x0 = (bw - totalW) / 2;
+    const bottom = Math.max(0, (bh - best.blockH * w) / 2) + best.blockH * w;
 
-    const sizes = [];
-    let left = n;
-    for (let r = 0; r < best.rows; r++) {
-      const k = Math.ceil(left / (best.rows - r));
-      sizes.push(k);
-      left -= k;
-    }
-    const rowStep = th + w * (LIFT + GAP_Y);
-    const blockH = best.rows * (th + w * LIFT) + (best.rows - 1) * w * GAP_Y;
-    const y0 = Math.max(0, (bh - blockH) / 2) + w * LIFT;
+    positions = [];
+    const place = (i, x, foot) => {
+      const h = tall(i) * w;
+      positions[i] = { x, y: foot - h, w, h };
+      const el = tubeEls[i];
+      el.style.left = x + 'px';
+      el.style.top = foot - h + 'px';
+      el.style.width = w + 'px';
+      el.style.height = h + 'px';
+    };
 
     rackEls.forEach((r) => r.remove());
     rackEls = [];
-    positions = [];
-    let idx = 0;
-    sizes.forEach((k, r) => {
-      const rowW = k * w + (k - 1) * w * GAP_X;
-      const x0 = (bw - rowW) / 2;
-      const y = y0 + r * rowStep;
-      for (let j = 0; j < k; j++, idx++) {
-        const x = x0 + j * w * (1 + GAP_X);
-        positions[idx] = { x, y, w, h: th };
-        const el = tubeEls[idx];
-        el.style.left = x + 'px';
-        el.style.top = y + 'px';
-        el.style.width = w + 'px';
-        el.style.height = th + 'px';
+    const gridCols = best.cols - special.size;
+    const gridX0 = x0 + (ends.length ? step : 0);
+    const centerX = x0 + Math.ceil(gridCols / 2) * step;
+    let foot = bottom - best.gridH * w;
+    best.rowsOf.forEach((row, r) => {
+      foot += best.rowH[r] * w + (r ? GAP_Y * w : 0);
+      if (center >= 0) {
+        // Half the row on each side of the middle column.
+        const leftCount = Math.ceil(row.length / 2);
+        row.forEach((i, j) => {
+          place(i, j < leftCount ? centerX - (leftCount - j) * step : centerX + (j - leftCount + 1) * step, foot);
+        });
+      } else {
+        const gridW = gridCols * w + (gridCols - 1) * w * GAP_X;
+        const rowW = row.length * w + (row.length - 1) * w * GAP_X;
+        row.forEach((i, j) => place(i, gridX0 + (gridW - rowW) / 2 + j * step, foot));
       }
       const rack = document.createElement('div');
       rack.className = 'rack';
       rack.style.left = x0 - w * 0.35 + 'px';
-      rack.style.width = rowW + w * 0.7 + 'px';
-      rack.style.top = y + th - w * 1.05 + 'px';
+      rack.style.width = totalW + w * 0.7 + 'px';
+      rack.style.top = foot - w * 1.05 + 'px';
       rack.style.height = w * 0.44 + 'px';
       board.insertBefore(rack, board.firstChild);
       rackEls.push(rack);
     });
+    if (center >= 0) place(center, centerX, bottom);
+    if (ends.length) {
+      place(ends[0], x0, bottom);
+      if (ends[1] != null) place(ends[1], x0 + (best.cols - 1) * step, bottom);
+    }
   }
 
   function segHtml(seg, isTop) {
@@ -573,7 +649,7 @@
   function describe(i) {
     const t = game.tubes[i];
     if (!t.length) return 'Tube ' + (i + 1) + ', empty';
-    if (Core.isSealed(t, game.cap)) return 'Tube ' + (i + 1) + ', finished, all ' + nameOf(t[0]);
+    if (Core.isSealed(t, game.board.units)) return 'Tube ' + (i + 1) + ', finished, all ' + nameOf(t[0]);
     const names = t.map((c, k) => (k < game.hidden[i] ? 'mystery' : nameOf(c)));
     return 'Tube ' + (i + 1) + ', bottom to top: ' + names.join(', ');
   }
@@ -590,7 +666,7 @@
       else segs.push({ color: tube[k], n: 1, hidden: isHidden });
     }
     el.querySelector('.liquid').innerHTML = segs.map((s, si) => segHtml(s, si === segs.length - 1)).join('');
-    const sealed = Core.isSealed(tube, game.cap);
+    const sealed = Core.isSealed(tube, game.board.units);
     el.classList.toggle('sealed', sealed);
     if (sealed) el.style.setProperty('--seal', colorOf(tube[0]));
     el.setAttribute('aria-label', describe(i));
@@ -654,7 +730,7 @@
     if (sel < 0) {
       const t = game.tubes[i];
       if (!t.length) return nudge(i, 'That tube is empty. Pick one with liquid in it!');
-      if (Core.isSealed(t, game.cap)) return nudge(i, 'That tube is already finished!');
+      if (Core.isSealed(t, game.board.units)) return nudge(i, 'That tube is already finished!');
       select(i);
       Sound.lift();
       return;
@@ -664,7 +740,7 @@
       Sound.tap();
       return;
     }
-    const problem = Core.pourProblem(game.tubes, game.cap, sel, i);
+    const problem = Core.pourProblem(game.tubes, game.board, sel, i);
     if (problem) {
       deselect();
       if (problem === 'mismatch') return nudge(i, 'Colors must match! Pour onto the same color or into an empty tube.');
@@ -687,11 +763,11 @@
     const color = game.tubes[f][game.tubes[f].length - 1];
     const dstBefore = game.tubes[t].length;
     game.history.push({ tubes: Core.cloneTubes(game.tubes) });
-    const k = Core.pour(game.tubes, game.cap, f, t);
+    const k = Core.pour(game.tubes, game.board, f, t);
     game.moves++;
     game.selected = -1;
     updateHud();
-    Sound.pour(k, game.tubes[t].length / game.cap);
+    Sound.pour(k, game.tubes[t].length / game.board.caps[t]);
     try {
       await animatePour(f, t, k, color, dstBefore);
     } catch (e) {
@@ -703,7 +779,7 @@
     normalizeHidden();
     renderTube(f);
     renderTube(t);
-    if (Core.isSealed(game.tubes[t], game.cap)) celebrateSeal(t);
+    if (Core.isSealed(game.tubes[t], game.board.units)) celebrateSeal(t);
     game.busy = false;
     if (needsLayout) {
       needsLayout = false;
@@ -809,7 +885,7 @@
     el.classList.add('fresh');
     setTimeout(() => el.classList.remove('fresh'), 700);
     Sound.seal();
-    if (!Core.isSolved(game.tubes, game.cap)) say(pickFrom(SEALS));
+    if (!Core.isSolved(game.tubes, game.board)) say(pickFrom(SEALS));
     if (reduceMotion) return;
     const p = positions[i];
     const color = colorOf(game.tubes[i][0]);
@@ -829,7 +905,7 @@
   }
 
   function afterMove() {
-    if (Core.isSolved(game.tubes, game.cap)) {
+    if (Core.isSolved(game.tubes, game.board)) {
       win();
       return;
     }
@@ -845,21 +921,45 @@
    */
   function checkStuck(again) {
     const token = ++game.checkToken;
-    if (!Core.hasUsefulMove(game.tubes, game.cap)) {
-      showStuck(again ? 'Still no pours here. Undo again!' : 'Oops! No more pours. Try Undo or Restart.');
-      return;
-    }
-    job('solve', { tubes: Core.encode(game.tubes), cap: game.cap, maxNodes: 25000 })
+    job('check', {
+      tubes: game.tubes,
+      cap: game.board,
+      history: game.history.slice(-12).map((h) => h.tubes),
+      extraTube: game.helps.extraTubes > 0,
+    })
       .then((r) => {
         if (token !== game.checkToken || game.done) return;
         if (r.status === 'unsolvable') {
-          showStuck(again ? 'Still stuck. Undo again!' : "Uh-oh, this mix can't be finished now. Undo a few pours!");
+          showStuck(stuckMessage(r, again), r.undos);
         } else if (game.stuck) {
           clearStuck();
           say('Back on track! Keep going.');
         }
       })
       .catch(() => {});
+  }
+
+  /*
+   * Says what the warning means (the solver tried every way forward and all
+   * of them end stuck, even if some pours are still possible) and what fixes
+   * it: how many pours to undo, and whether the extra tube would.
+   */
+  function stuckMessage(r, again) {
+    const noPours = !Core.hasUsefulMove(game.tubes, game.board);
+    const last = game.history[game.history.length - 1];
+    const usedLastEmpty =
+      !again && !noPours && r.undos === 1 && last && last.tubes.some((t) => !t.length) && !game.tubes.some((t) => !t.length);
+    let what;
+    if (again) what = 'Still a dead end.';
+    else if (noPours) what = 'No pours left!';
+    else if (usedLastEmpty) what = 'Dead end! That pour used your last empty tube, so every way from here gets stuck.';
+    else what = 'Dead end! You can still pour, but every way from here gets stuck.';
+    let fix;
+    if (r.undos) {
+      fix = 'Undo ' + r.undos + (again ? ' more' : '') + (r.undos === 1 ? ' pour' : ' pours') + ' to fix it.';
+    } else fix = 'Undo a few pours, or restart.';
+    if (r.extraTube) fix += ' Or try the extra tube!';
+    return what + ' ' + fix;
   }
 
   // ---------- Tools ----------
@@ -929,7 +1029,7 @@
     const token = game.checkToken;
     let r;
     try {
-      r = await job('solve', { tubes: Core.encode(game.tubes), cap: game.cap, maxNodes: 80000 });
+      r = await job('solve', { tubes: Core.encode(game.tubes), cap: game.board, maxNodes: 80000 });
     } finally {
       game.hintPending = false;
     }
@@ -951,7 +1051,7 @@
   // The first level points at each pour for free.
   function autoHint() {
     const token = game.checkToken;
-    job('solve', { tubes: Core.encode(game.tubes), cap: game.cap, maxNodes: 5000 })
+    job('solve', { tubes: Core.encode(game.tubes), cap: game.board, maxNodes: 5000 })
       .then((r) => {
         if (token !== game.checkToken || game.done || game.busy) return;
         if (r.status === 'solved' && r.moves.length) showHint(r.moves[0]);
@@ -968,6 +1068,7 @@
     game.helped = true;
     game.tubes.push([]);
     game.hidden.push(0);
+    game.board.caps.push(game.board.units);
     game.history.forEach((h) => h.tubes.push([]));
     const el = makeTube(game.tubes.length - 1);
     board.appendChild(el);
@@ -986,18 +1087,25 @@
     checkStuck(wasStuck);
   }
 
-  function showStuck(text) {
+  // `undos` is how many pours to undo, shown on the Undo button; leave it
+  // out to keep the count already showing.
+  function showStuck(text, undos) {
     game.stuck = true;
     deselect();
     board.classList.add('stuck');
     say(text);
     $('say').classList.add('alert');
     ['undoBtn', 'restartBtn', 'tubeBtn'].forEach((id) => $(id).classList.add('pulse'));
+    if (undos !== undefined) {
+      $('undoBadge').hidden = !undos;
+      $('undoBadge').textContent = undos ? String(undos) : '';
+    }
     Sound.oops();
   }
 
   function clearStuck() {
     game.stuck = false;
+    $('undoBadge').hidden = true;
     board.classList.remove('stuck');
     $('say').classList.remove('alert');
     ['undoBtn', 'restartBtn', 'tubeBtn'].forEach((id) => $(id).classList.remove('pulse'));
@@ -1134,7 +1242,23 @@
 
     document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => show(b.dataset.go)));
     $('playBtn').addEventListener('click', () => startLevel(saved.unlocked));
-    $('levelsBtn').addEventListener('click', () => show('levels'));
+    $('levelsBtn').addEventListener('click', () => {
+      show('levels');
+      scrollToCurrent();
+    });
+    $('jumpForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const n = Math.floor(Number($('jumpInput').value));
+      if (n >= 1 && n <= 9999) startLevel(n);
+    });
+    document.querySelectorAll('input[name="shape"]').forEach((r) =>
+      r.addEventListener('change', () => {
+        saved.custom.shape = r.value;
+        const { clamped } = clampCustom();
+        save();
+        renderCustom(clamped);
+      })
+    );
     $('customBtn').addEventListener('click', () => show('custom'));
     $('homeBtn').addEventListener('click', () => {
       game.loadToken++;
@@ -1185,7 +1309,7 @@
       const err = $('codeError');
       if (!spec) {
         err.hidden = false;
-        err.textContent = 'That code does not look right. It should look like 064220-1234.';
+        err.textContent = 'That code does not look right. It should look like 0642200-1234.';
         return;
       }
       err.hidden = true;
@@ -1235,6 +1359,7 @@
         history: game.history,
         helps: game.helps,
         helped: game.helped,
+        board: game.board,
         moves: game.moves,
         undone: game.undone,
       },
@@ -1261,6 +1386,7 @@
         history: g.history,
         helps: Object.assign({}, g.helps),
         helped: g.helped,
+        board: g.board || game.board,
         moves: g.moves || g.history.length,
         undone: g.undone || 0,
       });
