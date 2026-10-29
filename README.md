@@ -21,7 +21,7 @@ To put it online with GitHub Pages: make the repository public, open **Settings 
 - **Campaign.** Seven labs of ten experiments each (Bubble, Spark, Comet, Rocket, Orbit, Nebula, Galaxy), then endless labs after that. New ideas arrive one at a time: taller tubes at 21, one empty tube at 31, mystery layers at 35, the tallest tubes at 45. Each lab has a couple of easier "breather" levels.
 - **Mix your own.** Pick colors (2 to 12), tube size (3 to 6), empty tubes (1 to 3), challenge (Easy, Medium, Hard, Genius), and mystery layers. Every mix gets a lab code like `084220-4821` that friends can type in to play the same puzzle.
 - **Help.** Unlimited undo, plus 3 hints from the solver and 1 extra empty tube per level. Restart refills the hints and the tube. Using a hint or the extra tube caps a level at 2 stars.
-- **Stars.** 3 stars for matching or beating the robot's move count, 2 stars within 40% of it, 1 star for finishing.
+- **Stars.** 3 stars for matching or beating the robot's move count, 2 stars within 40% of it, 1 star for finishing. Every pour counts, including ones you undo; Restart starts the count over.
 - **Stuck warning.** After each pour the solver checks quietly whether the puzzle can still be finished. If not, the robot says so and the Undo and Restart buttons pulse.
 - **Color shapes.** An option that marks every color with its own shape, for color-blind players.
 - Sounds are synthesized in the browser (no audio files). Progress is saved in the browser.

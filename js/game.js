@@ -323,6 +323,9 @@
     history: [],
     helps: Object.assign({}, Core.HELPS),
     helped: false,
+    // Every pour this try, including ones later undone. Restart zeroes it.
+    moves: 0,
+    undone: 0,
     selected: -1,
     busy: false,
     done: false,
@@ -448,6 +451,8 @@
     game.selected = -1;
     game.done = false;
     game.helped = false;
+    game.moves = 0;
+    game.undone = 0;
     game.busy = false;
     game.checkToken++;
     game.helps = Object.assign({}, Core.HELPS);
@@ -597,7 +602,7 @@
   function updateHud() {
     const h = game.helps;
     const ready = !!game.puzzle && !game.done;
-    $('moveCount').textContent = String(game.history.length);
+    $('moveCount').textContent = String(game.moves);
     $('undoBtn').disabled = !ready || !game.history.length;
     $('restartBtn').disabled = !game.puzzle;
     $('hintBadge').textContent = String(h.hints);
@@ -667,6 +672,7 @@
     const dstBefore = game.tubes[t].length;
     game.history.push({ tubes: Core.cloneTubes(game.tubes) });
     const k = Core.pour(game.tubes, game.cap, f, t);
+    game.moves++;
     game.selected = -1;
     updateHud();
     Sound.pour(k, game.tubes[t].length / game.cap);
@@ -834,6 +840,7 @@
     clearHint();
     clearStuck();
     game.tubes = game.history.pop().tubes;
+    game.undone++;
     game.checkToken++;
     normalizeHidden();
     renderAll();
@@ -960,7 +967,7 @@
     game.done = true;
     clearHint();
     clearStuck();
-    const moves = game.history.length;
+    const moves = game.moves;
     const par = game.puzzle.par;
     let stars = moves <= par ? 3 : moves <= Math.ceil(par * 1.4) ? 2 : 1;
     if (game.helped) stars = Math.min(stars, 2);
@@ -989,7 +996,7 @@
     const starEls = $('winStars').querySelectorAll('i');
     starEls.forEach((s, i) => s.classList.toggle('on', i < stars));
     $('winStars').setAttribute('aria-label', stars + (stars === 1 ? ' star' : ' stars'));
-    $('winStats').textContent = moves + (moves === 1 ? ' move' : ' moves');
+    $('winStats').textContent = moves + (moves === 1 ? ' move' : ' moves') + (game.undone ? ' (' + game.undone + ' undone)' : '');
     let note;
     if (moves < par) note = "You beat the robot's record of " + par + ' moves!';
     else if (moves === par) note = "You matched the robot's record!";
@@ -1186,6 +1193,8 @@
         history: game.history,
         helps: game.helps,
         helped: game.helped,
+        moves: game.moves,
+        undone: game.undone,
       },
     };
   }
@@ -1210,6 +1219,8 @@
         history: g.history,
         helps: Object.assign({}, g.helps),
         helped: g.helped,
+        moves: g.moves || g.history.length,
+        undone: g.undone || 0,
       });
       buildBoard();
       updateHud();

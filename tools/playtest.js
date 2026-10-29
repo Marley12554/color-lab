@@ -38,13 +38,14 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await pour(p, f0, t0);
     check((await moves(p)) === 1, `level ${level} move counted`);
     await p.click('#undoBtn');
-    check((await moves(p)) === 0, `level ${level} undo`);
+    check((await moves(p)) === 1, `level ${level} undone pour still counts`);
+    check(await p.isDisabled('#undoBtn'), `level ${level} undo off with nothing to undo`);
     // Undo has no limit, even on later levels where it used to be capped at 5.
     if (level === 47) {
       for (const [f, t] of sol.solution.slice(0, 8)) await pour(p, f, t);
       for (let i = 0; i < 8; i++) await p.click('#undoBtn');
-      check((await moves(p)) === 0, 'eight undos in a row');
-      check(await p.isDisabled('#undoBtn'), 'undo off with nothing to undo');
+      check((await moves(p)) === 9, 'eight undos in a row, every pour counted');
+      check(await p.isDisabled('#undoBtn'), 'undo off after undoing everything');
     }
     // An extra tube adds one empty tube at the end and does not shift indices.
     if (level === 12) {
@@ -68,8 +69,13 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       await p.click('#hintBtn');
       await p.waitForSelector('.tube.hint-from');
       check((await p.textContent('#hintBadge')) === '1', 'new hint after a pour costs one');
+    }
+    // Restart zeroes the count. Level 31 skips it to show an undone pour
+    // costing a star: one extra pour on an 8-move level.
+    if (level !== 31) {
       await p.click('#restartBtn');
-      await p.click('#tubeBtn');
+      check((await moves(p)) === 0, `level ${level} restart zeroes moves`);
+      if (level === 12) await p.click('#tubeBtn');
     }
     for (const [f, t] of sol.solution) await pour(p, f, t);
     await p.waitForSelector('#win:not([hidden])', { timeout: 5000 });
@@ -77,7 +83,8 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('color-lab-v1')));
     console.log(`level ${level}: won in ${await moves(p)} moves, ${stars} stars, unlocked ${saved.unlocked}`);
     check(saved.unlocked === level + 1, `level ${level} unlocks the next`);
-    check(level === 12 ? stars === 2 : stars === 3, `level ${level} stars`);
+    check(level === 12 || level === 31 ? stars === 2 : stars === 3, `level ${level} stars`);
+    if (level === 31) check((await p.textContent('#winStats')) === `${sol.solution.length + 1} moves (1 undone)`, 'win card counts the undone pour');
     await p.context().close();
   }
 
@@ -103,7 +110,7 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     check(await p.evaluate(() => document.getElementById('undoBtn').classList.contains('pulse')), 'undo pulses');
     const before = await moves(p);
     await p.click('#undoBtn');
-    check((await moves(p)) === before - 1, 'undo while stuck');
+    check((await moves(p)) === before, 'undo while stuck keeps the count');
     check(!(await p.evaluate(() => document.getElementById('say').classList.contains('alert'))), 'warning clears after undo');
   }
   await p.context().close();
