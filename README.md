@@ -18,15 +18,16 @@ To put it online with GitHub Pages: make the repository public, open **Settings 
 
 ## What's in the game
 
-- **Campaign.** Seven labs of ten experiments each (Bubble, Spark, Comet, Rocket, Orbit, Nebula, Galaxy), then endless labs after that. Every level is open from the start; the level map has a "Go to experiment" box and shows more endless labs on request. New ideas arrive one at a time: the big beaker at 16, taller tubes at 21, mini tubes at 26, one empty tube at 31, mystery layers at 35, rocket boosters at 38, the tallest tubes at 45, the staircase at 46. Each lab has a couple of easier "breather" levels.
-- **Special boards.** Every lab after the first has at least one, marked with a striped corner on the map:
-  - *Big beaker:* a beaker twice as tall as a tube stands in the middle across both rows, with one regular empty tube.
-  - *Rocket boosters:* a booster tube nearly twice as tall at each end, both starting full of mixed colors.
-  - *Mini tubes:* the free space comes as several small tubes. A small tube can't hold a finished color, so it has to end up empty.
-  - *Staircase:* tubes step up in height. The short one has to end up empty; the tall ones have a layer to spare.
-- **Mix your own.** Pick a board (classic or any special board), colors (2 to 12), tube size (3 to 6), empty tubes (1 to 3, classic board only), challenge (Easy, Medium, Hard, Genius), and mystery layers. Every mix gets a lab code like `0842200-4821` that friends can type in to play the same puzzle. Older six-digit codes still work and mean the classic board.
+- **Campaign.** Seven labs of ten experiments each (Bubble, Spark, Comet, Rocket, Orbit, Nebula, Galaxy), then endless labs after that. Every level is open from the start; the level map has a "Go to experiment" box and shows more endless labs on request. New ideas arrive one at a time: a giant tube at 16, taller tubes at 21, mini tubes at 26, one empty tube at 31, mystery layers at 35, labeled tubes at 38, the tallest tubes at 45, two giant tubes at 46, and from 56 on some levels mix two modes. Each lab has a couple of easier "breather" levels.
+- **Modes.** Each one changes the rules, not just the look, and they stack. Levels with a board mode get a striped corner on the map.
+  - *Giant Tubes:* one or two tubes twice as tall, packed full of mixed colors at the start. One stands in the middle across both rows; two stand at the ends.
+  - *Mini Tubes:* your spare room comes as small tubes that hold 2 or 3 layers. A small tube can't hold a finished color, so it has to end up empty.
+  - *Labeled Tubes:* one to three tubes start empty and take only their own color (shown as a sticker on the glass, with its shape when color shapes are on). Each must end up holding its color.
+  - *Mystery Layers:* lower layers stay hidden until they're uncovered.
+  The generator rejects puzzles where a mode makes no difference: without the mini tubes the puzzle must be impossible (or, with labels too, the solver's route must use them), and the solver's route with the labels ignored must break them. Giant tubes always matter since they start full.
+- **Mix your own.** Pick colors (2 to 12), tube size (3 to 6), empty tubes (1 to 3), challenge (Easy, Medium, Hard, Genius), and any mix of modes. Mini Tubes and Labeled Tubes together allow up to 8 colors, since checking those boards for fairness is slow. Every mix gets a lab code like `08422013-4821` (colors, size, empty tubes, challenge, mystery, giant tubes, then mini + 2 x labeled) that friends can type in to play the same puzzle. Older six- and seven-digit codes for the classic board still work.
 - **Help.** Unlimited undo, plus 3 hints from the solver and 1 extra empty tube per level. Restart refills the hints and the tube. Using a hint or the extra tube caps a level at 2 stars.
-- **Stars.** 3 stars for matching or beating the robot's move count, 2 stars within 40% of it, 1 star for finishing. Every pour counts, including ones you undo; Restart starts the count over.
+- **Stars.** 3 stars for finishing within 12.5% of the robot's move count (no leeway on tiny puzzles: 41 robot moves allow 46), 2 stars within 1.5 times it, 1 star for finishing. Every pour counts, including ones you undo; Restart starts the count over.
 - **Dead-end warning.** After each pour the solver quietly tries every way forward. If none of them can be finished, the robot says so in plain words ("Dead end! This mix can't be finished. Undo 1 pour."), even when some pours are still possible, and adds "Or use the extra tube." when that would rescue it. The tubes turn gray and stop taking pours, the Undo button shows the number to undo, and the board stays gray until you're back at a mix that can be finished.
 - **Color shapes.** An option that marks every color with its own shape, for color-blind players.
 - Sounds are synthesized in the browser (no audio files): taps on every button, a soft pop when the mouse moves onto one, a jingle when a level starts, and pour, seal, and win sounds. Browsers block sound until the first tap, so the game is silent until then. Progress is saved in the browser.
@@ -43,7 +44,7 @@ To put it online with GitHub Pages: make the repository public, open **Settings 
 
 Size does most of the difficulty work; the pick chooses easy or tricky deals within a size. Every budget counts search steps rather than time, so slow and fast devices produce identical puzzles.
 
-Special boards are described by each tube's height plus how many layers make a finished color, and the solver, rules, and tests all work on any mix of heights. Every board keeps at least one more tube that can hold a finished color than there are colors; without that spare, most deals can't be finished at all.
+A board is described by each tube's height, its label (the only color it takes, if any), and how many layers make a finished color; the rules, solver, and tests all work on any mix of these. Every board keeps enough tubes that can hold a finished color, plus one spare unless the spare room is all mini tubes; without that, most deals can't be finished at all.
 
 With only one empty tube most deals can't be finished, so big ones take too long to find. The game caps them: with one empty tube, at most 12 colors in 3-layer tubes, 9 in 4-layer, 7 in 5-layer, and 6 in 6-layer.
 
@@ -81,10 +82,10 @@ node tools/deadends.js 1 70
 Shows, for each campaign level, the share of pours along a good route that lead straight into a dead end.
 
 ```bash
-node tools/shapes.js
+node tools/modes.js 12 6
 ```
 
-Shows, for each special board, how many random deals can be finished and how long one takes to find.
+Times the generator on the biggest custom mixes for each combination of modes and checks the results are fair.
 
 ```bash
 node tools/playtest.js http://localhost:8000/index.html

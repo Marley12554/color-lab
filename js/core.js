@@ -61,7 +61,8 @@
     return { color: c, count: k };
   }
 
-  // A board is a number (every tube that tall) or { caps, units }.
+  // A board is a number (every tube that tall) or { caps, units, labels }.
+  // `labels[i]` is the only color tube i accepts, or -1 for any color.
   function capAt(board, i) {
     return typeof board === 'number' ? board : board.caps[i];
   }
@@ -72,6 +73,14 @@
 
   function capsFor(board, count) {
     return typeof board === 'number' ? Array(count).fill(board) : board.caps.slice(0, count);
+  }
+
+  function labelAt(board, i) {
+    return typeof board === 'number' || !board.labels || board.labels[i] == null ? -1 : board.labels[i];
+  }
+
+  function labelsFor(board, count) {
+    return Array.from({ length: count }, (_, i) => labelAt(board, i));
   }
 
   // A tube is finished (and capped) when it holds all of one color.
@@ -91,6 +100,8 @@
     if (isSealed(src, units)) return 'sealed';
     if (isSealed(dst, units)) return 'sealed';
     if (dst.length >= capAt(board, to)) return 'full';
+    const label = labelAt(board, to);
+    if (label >= 0 && src[src.length - 1] !== label) return 'label';
     if (dst.length && dst[dst.length - 1] !== src[src.length - 1]) return 'mismatch';
     return null;
   }
@@ -107,9 +118,11 @@
     return k;
   }
 
+  // Every tube is empty or one finished color, and every labeled tube holds
+  // its finished color.
   function isSolved(tubes, board) {
     const units = unitsOf(board);
-    return tubes.every((t) => t.length === 0 || isSealed(t, units));
+    return tubes.every((t, i) => (t.length === 0 && labelAt(board, i) < 0) || isSealed(t, units));
   }
 
   // True when some pour would change the picture. Pouring a one-color tube
@@ -120,7 +133,7 @@
       const uniform = run.count === tubes[f].length;
       for (let t = 0; t < tubes.length; t++) {
         if (pourProblem(tubes, board, f, t)) continue;
-        if (uniform && !tubes[t].length && capAt(board, f) === capAt(board, t)) continue;
+        if (uniform && !tubes[t].length && capAt(board, f) === capAt(board, t) && labelAt(board, f) === labelAt(board, t)) continue;
         return true;
       }
     }
@@ -156,20 +169,23 @@
     return s.length === units && sRun(s) === units;
   }
 
-  function sSolved(state, units) {
+  function sSolved(state, sb) {
     for (let i = 0; i < state.length; i++) {
       const s = state[i];
-      if (s.length && !sSealed(s, units)) return false;
+      if (s.length ? !sSealed(s, sb.units) : sb.labels[i] >= 0) return false;
     }
     return true;
   }
 
-  // The solver's view of a board: each tube's height, and tags that keep
-  // tubes of different heights apart when states are compared.
+  // The solver's view of a board: each tube's height and label (as a
+  // character code, -1 for none), and tags that keep tubes of different
+  // heights or labels apart when states are compared.
   function solverBoard(board, count) {
     const caps = capsFor(board, count);
-    const same = caps.every((c) => c === caps[0]);
-    return { caps, units: unitsOf(board), tags: same ? null : caps.map((c) => c + ':') };
+    const labels = labelsFor(board, count).map((l) => (l >= 0 ? l + BASE : -1));
+    const tags = caps.map((c, i) => c + ':' + labels[i] + ':');
+    const same = tags.every((t) => t === tags[0]);
+    return { caps, labels, units: unitsOf(board), tags: same ? null : tags };
   }
 
   // Tubes of the same height are interchangeable, so states compare by their
@@ -198,16 +214,18 @@
 
   // Every pour worth trying, as flat triples (from, to, amount). The pruning
   // keeps the search complete: finished tubes are capped and never move,
-  // empty tubes of the same height are interchangeable so only the first is
-  // tried, and a one-color tube poured into an empty one of its own height
-  // gives back the same state.
+  // empty tubes of the same height and label are interchangeable so only
+  // the first is tried, and a one-color tube poured into an empty one just
+  // like it gives back the same state.
   function sMoves(state, sb, out) {
     out.length = 0;
     const caps = sb.caps;
+    const labels = sb.labels;
     const units = sb.units;
     const firstEmpty = {};
+    const kind = (i) => (sb.tags ? sb.tags[i] : '');
     for (let i = 0; i < state.length; i++) {
-      if (!state[i].length && firstEmpty[caps[i]] === undefined) firstEmpty[caps[i]] = i;
+      if (!state[i].length && firstEmpty[kind(i)] === undefined) firstEmpty[kind(i)] = i;
     }
     for (let f = 0; f < state.length; f++) {
       const s = state[f];
@@ -217,9 +235,10 @@
       const c = s.charCodeAt(s.length - 1);
       for (let t = 0; t < state.length; t++) {
         if (t === f) continue;
+        if (labels[t] >= 0 && labels[t] !== c) continue;
         const d = state[t];
         if (!d.length) {
-          if (firstEmpty[caps[t]] !== t || (uniform && caps[t] === caps[f])) continue;
+          if (firstEmpty[kind(t)] !== t || (uniform && kind(t) === kind(f))) continue;
           out.push(f, t, Math.min(run, caps[t]));
         } else {
           if (d.length >= caps[t] || d.charCodeAt(d.length - 1) !== c || sSealed(d, units)) continue;
@@ -308,7 +327,7 @@
     const weight = opts.weight == null ? 2 : opts.weight;
     const start = typeof tubes[0] === 'string' || !tubes.length ? tubes : encode(tubes);
     const sb = solverBoard(board, start.length);
-    if (sSolved(start, sb.units)) return { status: 'solved', moves: [], nodes: 0 };
+    if (sSolved(start, sb)) return { status: 'solved', moves: [], nodes: 0 };
 
     const colors = colorCount(start);
     const startKey = keyOf(start, sb.tags);
@@ -347,7 +366,7 @@
         moveFrom.push(buf[m]);
         moveTo.push(buf[m + 1]);
         depth.push(g);
-        if (sSolved(next, sb.units)) {
+        if (sSolved(next, sb)) {
           const moves = [];
           for (let i = nid; i > 0; i = parent[i]) moves.push([moveFrom[i], moveTo[i]]);
           moves.reverse();
@@ -409,7 +428,7 @@
       }
       state = nexts[pick];
       seen.add(keys[pick]);
-      if (sSolved(state, sb.units)) return true;
+      if (sSolved(state, sb)) return true;
     }
     return false;
   }
@@ -470,7 +489,7 @@
       for (let m = 0; m < buf.length; m += 3) {
         const next = sApply(here, buf[m], buf[m + 1], buf[m + 2]);
         options++;
-        if (!sSolved(next, sb.units) && solve(next, board, { maxNodes }).status === 'unsolvable') bad++;
+        if (!sSolved(next, sb) && solve(next, board, { maxNodes }).status === 'unsolvable') bad++;
       }
       fatal += bad;
       total += options;
@@ -503,7 +522,11 @@
     let extraTube = false;
     if (opts.extraTube) {
       const units = unitsOf(board);
-      const bigger = { caps: capsFor(board, current.length).concat([units]), units };
+      const bigger = {
+        caps: capsFor(board, current.length).concat([units]),
+        labels: labelsFor(board, current.length).concat([-1]),
+        units,
+      };
       extraTube = solve(current.concat([[]]), bigger, { maxNodes }).status !== 'unsolvable';
     }
     return { undos, extraTube };
@@ -534,112 +557,153 @@
   const ONE_EMPTY_MAX_COLORS = { 3: 12, 4: 9, 5: 7, 6: 6 };
 
   /*
-   * Special boards. Each returns the tubes' heights, how full each starts,
-   * and which tubes the layout should feature: one in the middle spanning
-   * both rows, or one at each end. Every board leaves about two tubes' worth
-   * of room to work with, shaped differently each time.
+   * Modes change the rules of a board, and they stack:
+   * - giant (0, 1, or 2): giant tubes twice as tall, packed full of mixed
+   *   colors at the start. One stands in the middle, two stand at the ends.
+   * - minis: the spare room comes as small tubes that hold 2 or 3 layers.
+   *   A small tube can never hold a finished color, so it must end empty.
+   * - labels: one to three empty tubes that each take only one color, and
+   *   must end up holding it.
+   * - mystery: layers stay hidden until uncovered (the game handles this).
+   * With no modes it is the classic board.
    */
-  const SHAPES = {
-    // Plain rows of same-size tubes.
-    classic(colors, units, empties) {
-      return {
-        caps: Array(colors + empties).fill(units),
-        fills: Array(colors).fill(units).concat(Array(empties).fill(0)),
-      };
-    },
-    // One giant beaker in the middle, twice as tall, beside a single regular
-    // empty tube. (The beaker alone is too little room past a few colors.)
-    beaker(colors, units) {
-      return {
-        caps: Array(colors + 1).fill(units).concat([units * 2]),
-        fills: Array(colors).fill(units).concat([0, 0]),
-        featured: { center: colors + 1 },
-      };
-    },
-    // A booster at each end, nearly twice as tall as a tube and starting full
-    // of mixed colors.
-    boosters(colors, units) {
-      const booster = units * 2 - 1;
-      const rest = colors * units - 2 * booster;
-      // With the boosters that makes one more tube than colors, so every
-      // color has somewhere to finish and one tube is left over.
-      const normal = colors - 1;
-      const fills = [];
-      for (let i = 0, left = rest; i < normal; i++, left -= units) fills.push(Math.max(0, Math.min(units, left)));
-      return {
-        caps: [booster].concat(Array(normal).fill(units), [booster]),
-        fills: [booster].concat(fills, [booster]),
-        featured: { ends: [0, normal + 1] },
-      };
-    },
-    // The empty room comes as several small tubes. Small tubes can never
-    // hold a finished color, so they have to end up empty.
-    minis(colors, units) {
+  const NO_MODES = { giant: 0, minis: false, labels: false, mystery: false };
+
+  function normalizeModes(modes) {
+    const m = Object.assign({}, NO_MODES, modes || {});
+    m.giant = Math.max(0, Math.min(2, m.giant | 0));
+    m.minis = !!m.minis;
+    m.labels = !!m.labels;
+    m.mystery = !!m.mystery;
+    return m;
+  }
+
+  // True when the board itself differs from classic (mystery doesn't).
+  function hasBoardModes(modes) {
+    const m = normalizeModes(modes);
+    return m.giant > 0 || m.minis || m.labels;
+  }
+
+  function labelCount(colors) {
+    return colors <= 4 ? 1 : colors <= 8 ? 2 : 3;
+  }
+
+  // The fewest colors that make every chosen mode matter.
+  function minColorsFor(modes) {
+    const m = normalizeModes(modes);
+    let min = 2;
+    if (m.giant) min = Math.max(min, 2 * m.giant + 2);
+    if (m.labels) min = Math.max(min, 3);
+    return min;
+  }
+
+  /*
+   * Builds the tubes for a board: each one's height, how full it starts, and
+   * its label, plus which tubes the layout features. `empties` is how many
+   * tubes' worth of free room the board has. Every color needs a tube it can
+   * finish in, so the builder keeps enough regular tubes for that, plus one
+   * spare when the free room isn't all small tubes.
+   */
+  function boardFor(modes, colors, units, empties, rng) {
+    const m = normalizeModes(modes);
+    const g = m.giant;
+    const caps = [];
+    const fills = [];
+    const labels = [];
+    const add = (cap, fill, label) => {
+      caps.push(cap);
+      fills.push(fill);
+      labels.push(label == null ? -1 : label);
+    };
+    for (let i = 0; i < colors - 2 * g; i++) add(units, units);
+    const L = m.labels ? labelCount(colors) : 0;
+    if (L) {
+      const chosen = shuffle(Array.from({ length: colors }, (_, i) => i), rng).slice(0, L);
+      chosen.sort((a, b) => a - b).forEach((c) => add(units, 0, c));
+    }
+    // Free regular tubes. Giant tubes take the place of two full tubes but
+    // only finish one color, so each one beyond the first needs a free tube
+    // to make up for it; labeled tubes are themselves free room, so they
+    // replace one regular free tube.
+    let free = Math.max(1, empties + Math.max(0, g - 1) - (L ? 1 : 0), g - L + 1);
+    if (m.minis) {
+      // Keep only the regular free tubes some color must finish in; the rest
+      // of the room comes as small tubes.
+      const keep = Math.max(0, g - L);
       const mini = units >= 6 ? 3 : 2;
-      const count = Math.ceil((2 * units) / mini);
-      return {
-        caps: Array(colors).fill(units).concat(Array(count).fill(mini)),
-        fills: Array(colors).fill(units).concat(Array(count).fill(0)),
-      };
-    },
-    // Tubes climb in three steps from left to right: one a layer short (it
-    // must end empty), regular ones, and two with a layer to spare. Every
-    // color needs a tube at least regular height to finish in, so there is
-    // always one more of those than there are colors. The room left over
-    // ends up in a shuffled few tubes.
-    stairs(colors, units, empties, rng) {
-      const caps = [units - 1]
-        .concat(Array(colors - 1).fill(units))
-        .concat([units + 1, units + 1]);
-      const fills = caps.slice();
-      let spare = caps.reduce((a, b) => a + b, 0) - colors * units;
-      const order = shuffle(caps.map((_, i) => i), rng);
-      for (const i of order) {
-        if (!spare) break;
-        const take = Math.min(spare, fills[i]);
-        fills[i] -= take;
-        spare -= take;
-      }
-      return { caps, fills };
-    },
-  };
+      const room = Math.max(1, free - keep) * units;
+      for (let i = 0; i < keep; i++) add(units, 0);
+      for (let i = 0; i < Math.max(2, Math.ceil(room / mini)); i++) add(mini, 0);
+      free = 0;
+    }
+    for (let i = 0; i < free; i++) add(units, 0);
+    let featured = null;
+    if (g === 1) featured = { center: caps.length };
+    if (g === 2) featured = { ends: [caps.length, caps.length + 1] };
+    for (let i = 0; i < g; i++) add(units * 2, units * 2);
+    return { caps, units, labels, fills, featured };
+  }
 
-  const SHAPE_NAMES = Object.keys(SHAPES);
-
-  // With a single empty tube most deals cannot be finished, so bigger ones
-  // take too long to find. Special boards have similar limits.
-  const SHAPE_MAX_COLORS = {
-    beaker: { 3: 12, 4: 12, 5: 12, 6: 12 },
-    boosters: { 3: 12, 4: 12, 5: 12, 6: 12 },
-    minis: { 3: 12, 4: 12, 5: 12, 6: 12 },
-    stairs: { 3: 12, 4: 12, 5: 12, 6: 12 },
-  };
-
-  function maxColorsFor(cap, empties, shape) {
-    if (shape && shape !== 'classic') return SHAPE_MAX_COLORS[shape][cap];
+  // With a single empty tube most deals cannot be finished (and the ones
+  // that can are full of dead ends), so bigger ones are not offered.
+  function maxColorsFor(cap, empties, modes) {
+    const m = normalizeModes(modes);
+    // Small tubes plus labeled tubes give many pours to check at every step,
+    // so past 8 colors a fair puzzle takes too long to find.
+    if (m.minis && m.labels) return 8;
+    if (hasBoardModes(m)) return PALETTE_SIZE;
     return empties <= 1 ? ONE_EMPTY_MAX_COLORS[cap] || 6 : PALETTE_SIZE;
   }
 
-  // The fewest colors a board can be dealt with.
-  function minColorsFor(shape) {
-    return shape === 'boosters' ? 4 : 2;
-  }
-
-  function boardFor(shape, colors, units, empties, rng) {
-    const layout = SHAPES[shape || 'classic'](colors, units, empties, rng);
-    return { caps: layout.caps, units, fills: layout.fills, featured: layout.featured || null };
-  }
-
-  // Shuffles every layer and pours them into the tubes to their starting fill.
-  function deal(colors, cap, empties, rng, shape) {
-    const board = boardFor(shape, colors, cap, empties, rng);
+  // Shuffles every layer and pours them into the tubes to their starting
+  // fill. The board rides along on the result as `.board`.
+  function deal(colors, cap, empties, rng, modes) {
+    const board = boardFor(modes, colors, cap, empties, rng);
     const pool = [];
     for (let c = 0; c < colors; c++) for (let k = 0; k < cap; k++) pool.push(c);
     shuffle(pool, rng);
     let at = 0;
     const tubes = board.fills.map((n) => pool.slice(at, (at += n)));
-    if (shape && shape !== 'classic') tubes.board = board;
+    tubes.board = board;
     return tubes;
+  }
+
+  /*
+   * Whether the modes actually change this puzzle. Mini tubes must be
+   * needed: without them it can't be finished. With labels on too, the
+   * labeled tubes are room of their own, so there the mini tubes only have
+   * to be part of the solver's route (two or more pours into them). Labels
+   * must get in the way: the solver's answer with the labels ignored has to
+   * break them. (Giant tubes always matter, since they start full.)
+   */
+  function modesMatter(tubes, board, modes, solution) {
+    const m = normalizeModes(modes);
+    if (m.minis && m.labels && solution) {
+      const intoMinis = solution.filter(([, t]) => board.caps[t] < board.units).length;
+      if (intoMinis < 2) return false;
+    } else if (m.minis) {
+      const keep = board.caps.map((c) => c >= board.units);
+      const without = {
+        caps: board.caps.filter((_, i) => keep[i]),
+        labels: board.labels.filter((_, i) => keep[i]),
+        units: board.units,
+      };
+      if (solve(tubes.filter((_, i) => keep[i]), without, { maxNodes: 20000 }).status === 'solved') return false;
+    }
+    if (m.labels) {
+      const plain = { caps: board.caps, units: board.units };
+      const r = solve(tubes, plain, { maxNodes: 20000 });
+      if (r.status === 'solved') {
+        const state = cloneTubes(tubes);
+        let broke = false;
+        for (const [f, t] of r.moves) {
+          if (pourProblem(state, board, f, t)) broke = true;
+          pour(state, plain, f, t);
+        }
+        if (!broke && isSolved(state, board)) return false;
+      }
+    }
+    return true;
   }
 
   // Deals boil down to dull when a tube starts nearly done.
@@ -672,10 +736,9 @@
   const FAIR = { share: 0.1, worst: 0.5 };
 
   /*
-   * spec: { colors, cap (layers per color), empties, shape, pick (0..1) or
-   * difficulty ('easy' ... 'genius'), seed, candidates, playouts, maxDeals,
-   * maxNodes }. Special shapes set their own room, so `empties` is only used
-   * by the classic shape.
+   * spec: { colors, cap (layers per color), empties (tubes' worth of free
+   * room), modes, pick (0..1) or difficulty ('easy' ... 'genius'), seed,
+   * candidates, playouts, maxDeals, maxNodes }.
    *
    * The result carries `caps` (each tube's height) and `units` (layers per
    * color); `cap` stays as the layers per color too.
@@ -691,13 +754,15 @@
     const colors = spec.colors;
     const cap = spec.cap;
     const empties = spec.empties;
-    const shape = spec.shape || 'classic';
+    const modes = normalizeModes(spec.modes);
     const pick = spec.pick != null ? spec.pick : DIFFICULTY_PICKS[spec.difficulty || 'medium'];
     const want = spec.candidates || 6;
     const playouts = spec.playouts || 60;
     const maxDeals = spec.maxDeals || 5000;
     const maxSolvable = spec.maxSolvable || want * 6;
-    const maxNodes = spec.maxNodes || 60000;
+    // Most solvable deals solve within a few hundred steps; a deal that takes
+    // more than this is skipped rather than worked on for seconds.
+    const maxNodes = spec.maxNodes || 12000;
     const seed = spec.seed == null ? 1 : spec.seed;
 
     const found = [];
@@ -706,14 +771,15 @@
     let solvable = 0;
     for (let k = 0; k < maxDeals && found.length < want && solvable < maxSolvable; k++) {
       const rng = makeRng(hashString(seed + ':' + k));
-      const dealt = deal(colors, cap, empties, rng, shape);
-      const board = dealt.board || boardFor('classic', colors, cap, empties, rng);
+      const dealt = deal(colors, cap, empties, rng, modes);
+      const board = dealt.board;
       const tubes = dealt.slice();
       if (dullDeal(tubes, cap)) continue;
       deals++;
       const start = encode(tubes);
       const result = solve(start, board, { maxNodes, weight: 2 });
       if (result.status !== 'solved') continue;
+      if (!modesMatter(tubes, board, modes, result.moves)) continue;
       solvable++;
       const dead = deadEndShare(start, board, result.moves, { limit: FAIR });
       const entry = { tubes, board, start, result, dead, attempt: k };
@@ -749,10 +815,12 @@
       cap,
       units: cap,
       caps: chosen.board.caps,
+      labels: chosen.board.labels,
       featured: chosen.board.featured,
-      shape,
+      modes,
+      mystery: modes.mystery,
       colors,
-      empties: shape === 'classic' ? empties : 0,
+      empties,
       tubes: chosen.tubes,
       palette,
       par: chosen.par,
@@ -771,13 +839,13 @@
 
   /*
    * Ten levels per lab. Each row is [colors, height, empty tubes, pick] with
-   * an optional fifth entry: 'm' for mystery layers, or a special board
-   * shape. Labs get bigger, and within a lab the pick rises with a couple of
-   * easier breathers so it is not a steady grind. New ideas arrive one at a
-   * time: the big beaker at 16, taller tubes at 21, mini tubes at 26, one
-   * empty tube at 31, mystery layers at 35, rocket boosters at 38, the tallest
-   * tubes at 45, the staircase at 46. Every lab after Bubble Lab has at
-   * least one special board.
+   * an optional fifth entry listing modes: 'g1' or 'g2' (giant tubes),
+   * 'mini', 'label', and 'm' (mystery layers). Labs get bigger, and within
+   * a lab the pick rises with a couple of easier breathers so it is not a
+   * steady grind. New ideas arrive one at a time: a giant tube at 16, taller
+   * tubes at 21, mini tubes at 26, one empty tube at 31, mystery layers at
+   * 35, labeled tubes at 38, the tallest tubes at 45, two giant tubes at 46,
+   * and from 56 on, some levels mix two modes.
    */
   const LABS = [
     { name: 'Bubble Lab', levels: [
@@ -786,27 +854,27 @@
     ] },
     { name: 'Spark Lab', levels: [
       [5, 4, 2, 0.5], [6, 4, 2, 0.3], [6, 4, 2, 0.6], [5, 4, 2, 0.9], [6, 4, 2, 0.8],
-      [5, 4, 0, 0.3, 'beaker'], [6, 4, 2, 0.9], [7, 4, 2, 0.5], [7, 4, 2, 0.7], [8, 4, 2, 0.4],
+      [5, 4, 2, 0.3, 'g1'], [6, 4, 2, 0.9], [7, 4, 2, 0.5], [7, 4, 2, 0.7], [8, 4, 2, 0.4],
     ] },
     { name: 'Comet Lab', levels: [
       [5, 5, 2, 0.4], [7, 4, 2, 0.6], [6, 5, 2, 0.4], [7, 4, 2, 0.8], [6, 5, 2, 0.7],
-      [6, 4, 0, 0.4, 'minis'], [7, 5, 2, 0.4], [8, 4, 2, 0.7], [7, 5, 2, 0.7], [9, 4, 2, 0.5],
+      [6, 4, 2, 0.4, 'mini'], [7, 5, 2, 0.4], [8, 4, 2, 0.7], [7, 5, 2, 0.7], [9, 4, 2, 0.5],
     ] },
     { name: 'Rocket Lab', levels: [
       [4, 4, 1, 0.3], [8, 4, 2, 0.6], [5, 4, 1, 0.4], [8, 5, 2, 0.5], [6, 4, 2, 0.5, 'm'],
-      [9, 4, 2, 0.6], [5, 4, 1, 0.7], [8, 4, 0, 0.5, 'boosters'], [9, 4, 2, 0.8], [10, 4, 2, 0.5],
+      [9, 4, 2, 0.6], [5, 4, 1, 0.7], [7, 4, 2, 0.5, 'label'], [9, 4, 2, 0.8], [10, 4, 2, 0.5],
     ] },
     { name: 'Orbit Lab', levels: [
       [8, 5, 2, 0.4], [9, 5, 2, 0.5], [10, 4, 2, 0.6], [7, 4, 2, 0.6, 'm'], [6, 6, 2, 0.5],
-      [8, 4, 0, 0.5, 'stairs'], [6, 4, 1, 0.7], [9, 5, 2, 0.8], [7, 6, 2, 0.6], [11, 4, 2, 0.6],
+      [8, 4, 2, 0.5, 'g2'], [6, 4, 1, 0.7], [9, 5, 2, 0.8], [7, 6, 2, 0.6], [11, 4, 2, 0.6],
     ] },
     { name: 'Nebula Lab', levels: [
       [9, 6, 2, 0.4], [10, 5, 2, 0.6], [8, 4, 2, 0.7, 'm'], [11, 4, 2, 0.7], [8, 6, 2, 0.6],
-      [8, 5, 0, 0.6, 'beaker'], [10, 5, 2, 0.8], [12, 4, 2, 0.5], [8, 4, 1, 0.6], [11, 5, 2, 0.7],
+      [8, 5, 2, 0.6, 'g1 label'], [10, 5, 2, 0.8], [12, 4, 2, 0.5], [8, 4, 1, 0.6], [11, 5, 2, 0.7],
     ] },
     { name: 'Galaxy Lab', levels: [
       [12, 4, 2, 0.7], [9, 6, 2, 0.6], [8, 4, 1, 0.8], [9, 5, 2, 0.6, 'm'], [12, 5, 2, 0.6],
-      [9, 4, 0, 0.6, 'minis'], [11, 6, 2, 0.6], [12, 4, 2, 0.9], [10, 5, 0, 0.7, 'boosters'], [12, 5, 2, 0.9],
+      [9, 4, 2, 0.6, 'mini m'], [11, 6, 2, 0.6], [12, 4, 2, 0.9], [10, 5, 2, 0.7, 'g2 mini'], [12, 5, 2, 0.9],
     ] },
   ];
 
@@ -814,8 +882,8 @@
   const ENDLESS_SIZES = [
     [12, 4, 2], [12, 5, 2], [11, 6, 2], [10, 6, 2], [11, 5, 2],
     [6, 4, 1], [11, 6, 2], [10, 5, 2, 'm'], [8, 4, 2, 'm'],
-    [9, 4, 0, 'beaker'], [7, 6, 0, 'beaker'], [11, 5, 0, 'boosters'], [12, 4, 0, 'stairs'],
-    [10, 6, 0, 'stairs'], [8, 5, 0, 'minis'],
+    [9, 4, 2, 'g1'], [7, 6, 2, 'g1'], [11, 5, 2, 'g2'], [12, 4, 2, 'label'],
+    [10, 6, 2, 'mini'], [8, 5, 2, 'g1 label'], [8, 4, 2, 'mini label'],
   ];
   const ENDLESS_NAMES = ['Star Lab', 'Moon Lab', 'Meteor Lab', 'Planet Lab', 'Quasar Lab', 'Aurora Lab'];
 
@@ -831,6 +899,17 @@
     return { index: i, name: round ? name + ' ' + (round + 1) : name };
   }
 
+  // 'g1 label' -> { giant: 1, labels: true, ... }
+  function parseModes(text) {
+    const words = (text || '').split(/\s+/);
+    return normalizeModes({
+      giant: words.includes('g2') ? 2 : words.includes('g1') ? 1 : 0,
+      minis: words.includes('mini'),
+      labels: words.includes('label'),
+      mystery: words.includes('m'),
+    });
+  }
+
   function levelSpec(level) {
     const lab = labOf(level);
     const slot = (level - 1) % 10;
@@ -842,8 +921,8 @@
       const size = ENDLESS_SIZES[rng.int(ENDLESS_SIZES.length)];
       row = [size[0], size[1], size[2], 0.5 + 0.5 * rng(), size[3]];
     }
-    if (!row) return { level, lab: lab.name, tutorial: true, shape: 'classic' };
-    const extra = row[4];
+    if (!row) return { level, lab: lab.name, tutorial: true, modes: normalizeModes() };
+    const modes = parseModes(row[4]);
     return {
       level,
       lab: lab.name,
@@ -851,8 +930,8 @@
       cap: row[1],
       empties: row[2],
       pick: row[3],
-      mystery: extra === 'm',
-      shape: extra && extra !== 'm' ? extra : 'classic',
+      modes,
+      mystery: modes.mystery,
       seed: 'level:' + level,
     };
   }
@@ -865,6 +944,7 @@
         cap: TUTORIAL.cap,
         units: TUTORIAL.cap,
         caps: TUTORIAL.tubes.map(() => TUTORIAL.cap),
+        labels: TUTORIAL.tubes.map(() => -1),
         featured: null,
         colors: 2,
         empties: 1,
@@ -904,7 +984,10 @@
     deadEndShare,
     deal,
     boardFor,
-    SHAPE_NAMES,
+    normalizeModes,
+    hasBoardModes,
+    parseModes,
+    modesMatter,
     minColorsFor,
     rate,
     generate,

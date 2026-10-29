@@ -635,8 +635,44 @@ input:focus-visible,
   gap: 8px;
 }
 
-.chips.shapes {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.modes {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.modes legend {
+  margin-bottom: 8px;
+}
+
+.modes legend small {
+  display: block;
+  font: 600 14px/1.3 var(--font-body);
+  color: var(--ink-soft);
+}
+
+.mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chips.count-chips {
+  flex: none;
+  grid-template-columns: repeat(2, 44px);
+  gap: 6px;
+}
+
+.chips.count-chips span {
+  min-height: 40px;
+}
+
+.chips input:disabled + span {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .chips legend {
@@ -1059,6 +1095,38 @@ input:focus-visible,
   font: 700 calc(var(--w) * 0.44) / 1 var(--font-display);
   color: rgba(255, 255, 255, 0.95);
   text-shadow: 0 1px 2px rgba(30, 42, 94, 0.35);
+}
+
+/* A labeled tube wears a colored sticker on the side of its glass (with
+   the color's shape when color shapes are on), like a label on a bottle,
+   and a faint tint of its color. It sits well below the rim so it never
+   looks like the cap a finished tube gets. */
+.tag {
+  display: none;
+  position: absolute;
+  z-index: 3;
+  top: 30%;
+  left: 4%;
+  right: 4%;
+  height: calc(var(--w) * 0.5);
+  place-items: center;
+  border-radius: 5px;
+  background: var(--label);
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(30, 42, 94, 0.3);
+}
+
+.tag svg {
+  height: 78%;
+  fill: rgba(255, 255, 255, 0.9);
+}
+
+.tube.labeled .tag {
+  display: grid;
+}
+
+.tube.labeled .glass {
+  background: color-mix(in srgb, var(--label) 14%, var(--glass));
 }
 
 .stopper {

@@ -91,14 +91,6 @@
       <h2>Mix your own</h2>
     </header>
     <div class="custom-card">
-      <fieldset class="chips shapes">
-        <legend class="step-label">Board</legend>
-        <label><input type="radio" name="shape" value="classic" checked><span>Classic</span></label>
-        <label><input type="radio" name="shape" value="beaker"><span>Big beaker</span></label>
-        <label><input type="radio" name="shape" value="boosters"><span>Rocket boosters</span></label>
-        <label><input type="radio" name="shape" value="minis"><span>Mini tubes</span></label>
-        <label><input type="radio" name="shape" value="stairs"><span>Staircase</span></label>
-      </fieldset>
       <div class="stepper" data-key="colors">
         <span class="step-label">Colors</span>
         <button class="step-btn" type="button" data-step="-1" aria-label="Fewer colors">−</button>
@@ -125,12 +117,24 @@
         <label><input type="radio" name="difficulty" value="hard"><span>Hard</span></label>
         <label><input type="radio" name="difficulty" value="genius"><span>Genius</span></label>
       </fieldset>
-      <label class="toggle wide"><input id="mysteryToggle" type="checkbox"> <span>Mystery layers <small>(hidden until you uncover them)</small></span></label>
+      <fieldset class="modes">
+        <legend class="step-label">Modes <small>Pick any, or none for the classic game.</small></legend>
+        <div class="mode-row">
+          <label class="toggle wide"><input id="modeGiant" type="checkbox"> <span>Giant Tubes <small>Extra-tall tubes packed with mixed colors.</small></span></label>
+          <div class="chips count-chips" role="radiogroup" aria-label="How many giant tubes">
+            <label><input type="radio" name="giants" value="1" checked><span>1</span></label>
+            <label><input type="radio" name="giants" value="2"><span>2</span></label>
+          </div>
+        </div>
+        <label class="toggle wide"><input id="modeMinis" type="checkbox"> <span>Mini Tubes <small>Your spare room comes as small tubes that must end up empty.</small></span></label>
+        <label class="toggle wide"><input id="modeLabels" type="checkbox"> <span>Labeled Tubes <small>Some tubes take only one color.</small></span></label>
+        <label class="toggle wide"><input id="mysteryToggle" type="checkbox"> <span>Mystery Layers <small>Lower layers stay hidden until you uncover them.</small></span></label>
+      </fieldset>
       <button id="mixBtn" class="big-btn primary" type="button"><span class="big-label">Mix it!</span></button>
       <form id="codeForm" class="code-form">
         <label for="codeInput">Have a lab code?</label>
         <div class="code-row">
-          <input id="codeInput" inputmode="numeric" autocomplete="off" placeholder="0642200-1234" maxlength="12">
+          <input id="codeInput" inputmode="numeric" autocomplete="off" placeholder="06422000-1234" maxlength="13">
           <button class="small-btn" type="submit">Go</button>
         </div>
         <p id="codeError" class="note bad" hidden></p>

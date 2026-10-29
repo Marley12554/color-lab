@@ -59,16 +59,32 @@
     35: 'Mystery samples! Gray layers show their color when you uncover them.',
     45: 'Super tall tubes: 6 layers each!',
   };
-  const SHAPE_INTROS = {
-    beaker: 'A giant beaker! It holds twice as much as a tube.',
-    minis: 'Mini tubes! They hold only a little, and they must end up empty.',
-    boosters: 'Rocket boosters! The tall tubes at the ends start full.',
-    stairs: 'A staircase! Short tubes must end up empty. Tall ones have room to spare.',
-  };
-  const SHAPE_LABELS = { classic: 'Classic', beaker: 'Big beaker', boosters: 'Rocket boosters', minis: 'Mini tubes', stairs: 'Staircase' };
+  // What the robot says when a mode shows up, rarest first.
+  const MODE_INTROS = [
+    ['labels', 'Labeled tubes! Each one only takes its own color.'],
+    ['minis', 'Mini tubes! They hold just a little and must end up empty.'],
+    ['giant', 'Giant tubes! They start packed with mixed colors. Dig them out!'],
+    ['mystery', 'Mystery layers! Gray layers show their color when you uncover them.'],
+  ];
+
+  function modeIntro(modes) {
+    const hit = MODE_INTROS.find(([key]) => modes && modes[key]);
+    return hit ? hit[1] : null;
+  }
+
+  function modeNames(modes) {
+    const names = [];
+    if (modes.giant) names.push(modes.giant === 2 ? '2 Giant Tubes' : 'Giant Tube');
+    if (modes.minis) names.push('Mini Tubes');
+    if (modes.labels) names.push('Labeled Tubes');
+    if (modes.mystery) names.push('Mystery Layers');
+    return names;
+  }
   const CHEERS = ["Let's sort these samples!", 'Ready, scientist?', 'Time for some science!', 'Sort it, pour it, seal it!', 'You can do it!'];
   const SEALS = ['Tube complete!', 'Sealed it!', 'Perfect pour!', 'Super sorting!', 'Nice one!'];
   const DIFFS = ['easy', 'medium', 'hard', 'genius'];
+  // Extra moves allowed for 3 stars, as a share of the robot's count.
+  const STAR_LEEWAY = 0.125;
 
   // ---------- Saved progress (this browser only) ----------
 
@@ -81,7 +97,7 @@
       best: {},
       sound: true,
       shapes: false,
-      custom: { colors: 6, cap: 4, empties: 2, difficulty: 'medium', mystery: false, shape: 'classic' },
+      custom: { colors: 6, cap: 4, empties: 2, difficulty: 'medium', modes: { giant: 0, minis: false, labels: false, mystery: false } },
     };
   }
 
@@ -91,7 +107,20 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        return Object.assign(base, data, { custom: Object.assign(base.custom, data.custom) });
+        const custom = Object.assign(base.custom, data.custom);
+        // Settings saved before modes: carry over what still exists.
+        if (!data.custom || !data.custom.modes) {
+          const old = (data.custom && data.custom.shape) || 'classic';
+          custom.modes = {
+            giant: old === 'beaker' ? 1 : old === 'boosters' ? 2 : 0,
+            minis: old === 'minis',
+            labels: false,
+            mystery: !!(data.custom && data.custom.mystery),
+          };
+        }
+        delete custom.shape;
+        delete custom.mystery;
+        return Object.assign(base, data, { custom });
       }
     } catch (e) {
       /* storage blocked or corrupt: start fresh */
@@ -239,7 +268,7 @@
         const btn = document.createElement('button');
         btn.type = 'button';
         const spec = Core.levelSpec(n);
-        const special = spec.shape && spec.shape !== 'classic';
+        const special = !!spec.modes && Core.hasBoardModes(spec.modes);
         btn.className = 'level-btn' + (n === saved.unlocked ? ' current' : '') + (special ? ' special' : '');
         const stars = saved.stars[n] || 0;
         btn.innerHTML =
@@ -248,7 +277,7 @@
           '</span>';
         btn.setAttribute(
           'aria-label',
-          'Experiment ' + n + (special ? ', ' + SHAPE_LABELS[spec.shape] : '') + ', ' + stars + (stars === 1 ? ' star' : ' stars')
+          'Experiment ' + n + (special ? ', ' + modeNames(spec.modes).join(' and ') : '') + ', ' + stars + (stars === 1 ? ' star' : ' stars')
         );
         btn.addEventListener('click', () => startLevel(n));
         grid.appendChild(btn);
@@ -277,11 +306,11 @@
 
   function clampCustom() {
     const c = saved.custom;
-    if (!SHAPE_LABELS[c.shape]) c.shape = 'classic';
+    c.modes = Core.normalizeModes(c.modes);
     c.cap = Math.min(6, Math.max(3, c.cap));
     c.empties = Math.min(3, Math.max(1, c.empties));
-    const max = Core.maxColorsFor(c.cap, c.empties, c.shape);
-    const min = Core.minColorsFor(c.shape);
+    const max = Core.maxColorsFor(c.cap, c.empties, c.modes);
+    const min = Core.minColorsFor(c.modes);
     const clamped = c.colors > max || c.colors < min;
     c.colors = Math.min(max, Math.max(min, c.colors));
     return { max, min, clamped };
@@ -290,64 +319,81 @@
   function renderCustom(clampedNow) {
     const c = saved.custom;
     const { max, min } = clampCustom();
-    const classic = c.shape === 'classic';
+    const m = c.modes;
+    const plain = !Core.hasBoardModes(m);
     $('colorsOut').textContent = c.colors;
     $('capOut').textContent = c.cap;
-    $('emptiesOut').textContent = classic ? c.empties : '–';
+    $('emptiesOut').textContent = c.empties;
     const limits = { colors: [min, max], cap: [3, 6], empties: [1, 3] };
     document.querySelectorAll('.stepper').forEach((row) => {
       const key = row.dataset.key;
-      const off = key === 'empties' && !classic;
-      row.querySelector('[data-step="-1"]').disabled = off || c[key] <= limits[key][0];
-      row.querySelector('[data-step="1"]').disabled = off || c[key] >= limits[key][1];
+      row.querySelector('[data-step="-1"]').disabled = c[key] <= limits[key][0];
+      row.querySelector('[data-step="1"]').disabled = c[key] >= limits[key][1];
     });
-    document.querySelectorAll('input[name="shape"]').forEach((r) => {
-      r.checked = r.value === c.shape;
+    $('modeGiant').checked = m.giant > 0;
+    document.querySelectorAll('input[name="giants"]').forEach((r) => {
+      r.disabled = !m.giant;
+      r.checked = Number(r.value) === (m.giant || 1);
     });
+    $('modeMinis').checked = m.minis;
+    $('modeLabels').checked = m.labels;
     const note = $('sizeNote');
-    note.hidden = !(!classic || c.empties === 1 || clampedNow);
-    if (!classic) note.textContent = SHAPE_INTROS[c.shape] + ' This board brings its own empty space.';
-    else if (c.empties === 1) {
+    note.hidden = !((plain && c.empties === 1) || (m.minis && m.labels) || clampedNow);
+    if (m.minis && m.labels) note.textContent = 'Mini Tubes and Labeled Tubes together fit up to 8 colors.';
+    else if (!plain && clampedNow) note.textContent = 'These modes need ' + min + ' to ' + max + ' colors.';
+    else if (plain && c.empties === 1) {
       note.textContent = 'One empty tube means more dead ends. Up to ' + max + ' colors fit in tubes this size.';
     }
     else note.textContent = 'Up to ' + max + ' colors.';
     document.querySelectorAll('input[name="difficulty"]').forEach((r) => {
       r.checked = r.value === c.difficulty;
     });
-    $('mysteryToggle').checked = c.mystery;
+    $('mysteryToggle').checked = m.mystery;
   }
 
-  // Lab codes: two digits of colors, then height, empty tubes, challenge,
-  // mystery, and board shape, then the seed. Codes made before board shapes
-  // existed have no shape digit and mean the classic board.
+  /*
+   * Lab codes: two digits of colors, then height, empty tubes, challenge,
+   * mystery, giant tubes (0-2), and mini tubes + 2 x labeled tubes, then the
+   * seed, like 06422000-1234. Older codes are six digits (classic) or seven
+   * (the last digit was the old board shape; only 0, the classic board,
+   * still exists).
+   */
   function customCode(spec) {
-    const shape = Core.SHAPE_NAMES.indexOf(spec.shape || 'classic');
+    const m = Core.normalizeModes(spec.modes);
     return (
       String(spec.colors).padStart(2, '0') + spec.cap + spec.empties + DIFFS.indexOf(spec.difficulty) +
-      (spec.mystery ? 1 : 0) + Math.max(0, shape) + '-' + spec.seed
+      (m.mystery ? 1 : 0) + m.giant + ((m.minis ? 1 : 0) + (m.labels ? 2 : 0)) + '-' + spec.seed
     );
   }
 
   function parseCode(text) {
-    const m = /^\s*(\d{2})(\d)(\d)(\d)([01])(\d)?\s*-?\s*(\d{1,6})\s*$/.exec(text || '');
-    if (!m) return null;
+    const match = /^\s*(\d{6,8})\s*-?\s*(\d{1,6})\s*$/.exec(text || '');
+    if (!match) return null;
+    const d = match[1];
+    if (d.length === 7 && d[6] !== '0') return { outdated: true };
+    const extra = d.length === 8 ? +d[7] : 0;
     const spec = {
-      colors: +m[1],
-      cap: +m[2],
-      empties: +m[3],
-      difficulty: DIFFS[+m[4]],
-      mystery: m[5] === '1',
-      shape: Core.SHAPE_NAMES[m[6] ? +m[6] : 0],
-      seed: +m[7],
+      colors: +d.slice(0, 2),
+      cap: +d[2],
+      empties: +d[3],
+      difficulty: DIFFS[+d[4]],
+      modes: Core.normalizeModes({
+        mystery: d[5] === '1',
+        giant: d.length === 8 ? +d[6] : 0,
+        minis: (extra & 1) === 1,
+        labels: (extra & 2) === 2,
+      }),
+      seed: +match[2],
     };
-    if (!spec.difficulty || !spec.shape || spec.cap < 3 || spec.cap > 6 || spec.empties < 1 || spec.empties > 3) return null;
-    if (spec.colors < Core.minColorsFor(spec.shape) || spec.colors > Core.maxColorsFor(spec.cap, spec.empties, spec.shape)) return null;
+    if (!spec.difficulty || !/[01]/.test(d[5]) || (d.length === 8 && (+d[6] > 2 || extra > 3))) return null;
+    if (spec.cap < 3 || spec.cap > 6 || spec.empties < 1 || spec.empties > 3) return null;
+    if (spec.colors < Core.minColorsFor(spec.modes) || spec.colors > Core.maxColorsFor(spec.cap, spec.empties, spec.modes)) return null;
     return spec;
   }
 
   function newCustomSpec() {
     clampCustom();
-    return Object.assign({}, saved.custom, { seed: 1000 + Math.floor(Math.random() * 9000) });
+    return Object.assign({}, saved.custom, { modes: Object.assign({}, saved.custom.modes), seed: 1000 + Math.floor(Math.random() * 9000) });
   }
 
   // ---------- The game ----------
@@ -457,7 +503,7 @@
         colors: spec.colors,
         cap: spec.cap,
         empties: spec.empties,
-        shape: spec.shape || 'classic',
+        modes: spec.modes,
         difficulty: spec.difficulty,
         seed: 'custom:' + spec.seed,
       });
@@ -469,7 +515,7 @@
       say("I couldn't mix that one. Try a smaller size!");
       return;
     }
-    puzzle.mystery = spec.mystery;
+    puzzle.mystery = Core.normalizeModes(spec.modes).mystery;
     setPuzzle(puzzle);
   }
 
@@ -480,8 +526,7 @@
     resetBoard();
     let line;
     if (game.mode === 'level' && INTROS[game.level]) line = INTROS[game.level];
-    else if (SHAPE_INTROS[puzzle.shape]) line = SHAPE_INTROS[puzzle.shape];
-    else if (puzzle.mystery) line = 'Mystery samples! Gray layers show their color when you uncover them.';
+    else if (modeIntro(puzzle.modes)) line = modeIntro(puzzle.modes);
     else line = pickFrom(CHEERS);
     say(line);
     if (game.mode === 'level' && game.level === 1) autoHint();
@@ -490,7 +535,11 @@
   function resetBoard() {
     const p = game.puzzle;
     const units = p.units || p.cap;
-    game.board = { caps: (p.caps || p.tubes.map(() => units)).slice(), units };
+    game.board = {
+      caps: (p.caps || p.tubes.map(() => units)).slice(),
+      labels: p.tubes.map((_, i) => (p.labels && p.labels[i] != null ? p.labels[i] : -1)),
+      units,
+    };
     game.tubes = Core.cloneTubes(p.tubes);
     game.hidden = game.tubes.map((t) => (p.mystery ? t.length - Core.topRun(t).count : 0));
     game.history = [];
@@ -523,7 +572,8 @@
     const el = document.createElement('button');
     el.type = 'button';
     el.className = 'tube';
-    el.innerHTML = '<span class="glass"><span class="liquid"></span></span><span class="lip"></span><span class="stopper"></span>';
+    el.innerHTML =
+      '<span class="glass"><span class="liquid"></span></span><span class="lip"></span><span class="tag"></span><span class="stopper"></span>';
     el.addEventListener('click', () => onTube(i));
     return el;
   }
@@ -650,10 +700,12 @@
 
   function describe(i) {
     const t = game.tubes[i];
-    if (!t.length) return 'Tube ' + (i + 1) + ', empty';
-    if (Core.isSealed(t, game.board.units)) return 'Tube ' + (i + 1) + ', finished, all ' + nameOf(t[0]);
+    const label = game.board.labels ? game.board.labels[i] : -1;
+    const name = 'Tube ' + (i + 1) + (label >= 0 ? ', takes only ' + nameOf(label) : '');
+    if (!t.length) return name + ', empty';
+    if (Core.isSealed(t, game.board.units)) return name + ', finished, all ' + nameOf(t[0]);
     const names = t.map((c, k) => (k < game.hidden[i] ? 'mystery' : nameOf(c)));
-    return 'Tube ' + (i + 1) + ', bottom to top: ' + names.join(', ');
+    return name + ', bottom to top: ' + names.join(', ');
   }
 
   function renderTube(i) {
@@ -671,6 +723,14 @@
     const sealed = Core.isSealed(tube, game.board.units);
     el.classList.toggle('sealed', sealed);
     if (sealed) el.style.setProperty('--seal', colorOf(tube[0]));
+    const label = game.board.labels ? game.board.labels[i] : -1;
+    el.classList.toggle('labeled', label >= 0);
+    if (label >= 0) {
+      el.style.setProperty('--label', colorOf(label));
+      el.querySelector('.tag').innerHTML = saved.shapes
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true">' + SHAPES[game.palette[label]] + '</svg>'
+        : '';
+    }
     el.setAttribute('aria-label', describe(i));
   }
 
@@ -747,6 +807,7 @@
       deselect();
       if (problem === 'mismatch') return nudge(i, 'Colors must match! Pour onto the same color or into an empty tube.');
       if (problem === 'sealed') return nudge(i, 'That tube is already finished!');
+      if (problem === 'label') return nudge(i, 'That tube only takes ' + nameOf(game.board.labels[i]) + '!');
       return nudge(i, 'That tube is full!');
     }
     pourInto(sel, i);
@@ -1071,6 +1132,7 @@
     game.tubes.push([]);
     game.hidden.push(0);
     game.board.caps.push(game.board.units);
+    game.board.labels.push(-1);
     game.history.forEach((h) => h.tubes.push([]));
     const el = makeTube(game.tubes.length - 1);
     board.appendChild(el);
@@ -1131,7 +1193,11 @@
     clearStuck();
     const moves = game.moves;
     const par = game.puzzle.par;
-    let stars = moves <= par ? 3 : moves <= Math.ceil(par * 1.4) ? 2 : 1;
+    // There are many ways through a puzzle, so 3 stars allows a little more
+    // than the robot's count (none on tiny puzzles), and 2 stars up to half
+    // again as many.
+    const allowed = par + Math.round(par * STAR_LEEWAY);
+    let stars = moves <= allowed ? 3 : moves <= Math.ceil(par * 1.5) ? 2 : 1;
     if (game.helped) stars = Math.min(stars, 2);
     if (game.mode === 'level') {
       const n = game.level;
@@ -1159,11 +1225,13 @@
     starEls.forEach((s, i) => s.classList.toggle('on', i < stars));
     $('winStars').setAttribute('aria-label', stars + (stars === 1 ? ' star' : ' stars'));
     $('winStats').textContent = moves + (moves === 1 ? ' move' : ' moves') + (game.undone ? ' (' + game.undone + ' undone)' : '');
+    const allowed = par + Math.round(par * STAR_LEEWAY);
     let note;
     if (moves < par) note = "You beat the robot's record of " + par + ' moves!';
     else if (moves === par) note = "You matched the robot's record!";
-    else note = "Robot's record: " + par + ' moves. Can you match it?';
-    if (game.helped && stars === 2) note += ' Finish without hints or an extra tube for 3 stars.';
+    else if (stars === 3) note = "Robot's record: " + par + ' moves. Can you match it?';
+    else if (game.helped && moves <= allowed) note = 'Finish without hints or an extra tube for 3 stars.';
+    else note = 'Finish in ' + allowed + ' moves or fewer for 3 stars.';
     $('winNote').textContent = note;
     const code = $('winCode');
     code.hidden = isLevel;
@@ -1286,14 +1354,22 @@
       const n = Math.floor(Number($('jumpInput').value));
       if (n >= 1 && n <= 9999) startLevel(n);
     });
-    document.querySelectorAll('input[name="shape"]').forEach((r) =>
-      r.addEventListener('change', () => {
-        saved.custom.shape = r.value;
-        const { clamped } = clampCustom();
-        save();
-        renderCustom(clamped);
-      })
+    // Mode switches on Mix your own.
+    const setMode = (change) => {
+      Object.assign(saved.custom.modes, change);
+      const { clamped } = clampCustom();
+      save();
+      renderCustom(clamped);
+    };
+    $('modeGiant').addEventListener('change', (e) => {
+      const count = Number((document.querySelector('input[name="giants"]:checked') || {}).value) || 1;
+      setMode({ giant: e.target.checked ? count : 0 });
+    });
+    document.querySelectorAll('input[name="giants"]').forEach((r) =>
+      r.addEventListener('change', () => setMode({ giant: Number(r.value) }))
     );
+    $('modeMinis').addEventListener('change', (e) => setMode({ minis: e.target.checked }));
+    $('modeLabels').addEventListener('change', (e) => setMode({ labels: e.target.checked }));
     $('customBtn').addEventListener('click', () => show('custom'));
     $('homeBtn').addEventListener('click', () => {
       game.loadToken++;
@@ -1341,18 +1417,17 @@
         save();
       })
     );
-    $('mysteryToggle').addEventListener('change', (e) => {
-      saved.custom.mystery = e.target.checked;
-      save();
-    });
+    $('mysteryToggle').addEventListener('change', (e) => setMode({ mystery: e.target.checked }));
     $('mixBtn').addEventListener('click', () => startCustom(newCustomSpec()));
     $('codeForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const spec = parseCode($('codeInput').value);
       const err = $('codeError');
-      if (!spec) {
+      if (!spec || spec.outdated) {
         err.hidden = false;
-        err.textContent = 'That code does not look right. It should look like 0642200-1234.';
+        err.textContent = spec
+          ? 'That code is from an older version of Color Lab, and its board no longer exists.'
+          : 'That code does not look right. It should look like 06422000-1234.';
         return;
       }
       err.hidden = true;

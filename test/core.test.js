@@ -95,32 +95,45 @@ test('the solver agrees with brute force on small puzzles', () => {
   assert.ok(solvable > 50 && unsolvable > 20, `${solvable} solvable, ${unsolvable} not`);
 });
 
-test('the solver agrees with brute force on every special board shape', () => {
-  for (const shape of ['beaker', 'boosters', 'minis', 'stairs']) {
+const MODE_SETS = ['g1', 'g2', 'mini', 'label', 'g1 label', 'mini label', 'g1 mini'];
+
+test('the solver agrees with brute force in every mode', () => {
+  for (const text of MODE_SETS) {
+    const modes = C.parseModes(text);
     let solvable = 0;
     let unsolvable = 0;
-    for (let i = 0; i < 60; i++) {
-      const rng = C.makeRng(shape + i);
+    for (let i = 0; i < 40; i++) {
+      const rng = C.makeRng(text + i);
       // Kept small so plain brute force stays quick.
       const units = 3;
-      const colors = C.minColorsFor(shape) + rng.int(2);
-      const tubes = C.deal(colors, units, 0, rng, shape);
+      const colors = C.minColorsFor(modes) + (modes.giant === 2 ? 0 : rng.int(2));
+      const tubes = C.deal(colors, units, 2, rng, modes);
       const board = tubes.board;
       const plain = tubes.slice();
       const shortest = bruteForce(plain, board);
       const exact = C.solve(plain, board, { weight: 1, maxNodes: 1e6 });
       if (shortest < 0) {
         unsolvable++;
-        assert.equal(exact.status, 'unsolvable', `${shape} deal ${i}`);
+        assert.equal(exact.status, 'unsolvable', `${text} deal ${i}`);
       } else {
         solvable++;
-        assert.equal(exact.status, 'solved', `${shape} deal ${i}`);
-        assert.equal(exact.moves.length, shortest, `${shape} deal ${i} is not shortest`);
+        assert.equal(exact.status, 'solved', `${text} deal ${i}`);
+        assert.equal(exact.moves.length, shortest, `${text} deal ${i} is not shortest`);
         assert.ok(C.isSolved(replay(plain, board, exact.moves), board));
       }
     }
-    assert.ok(solvable > 5, `${shape}: ${solvable} solvable, ${unsolvable} not`);
+    assert.ok(solvable > 5, `${text}: ${solvable} solvable, ${unsolvable} not`);
   }
+});
+
+test('a labeled tube takes only its color and must finish holding it', () => {
+  const board = { caps: [4, 4, 4, 4], labels: [-1, -1, 1, -1], units: 4 };
+  const tubes = [[1, 1, 0, 0], [0, 0, 1, 1], [], []];
+  assert.equal(C.pourProblem(tubes, board, 0, 2), 'label'); // pink into a blue tube
+  assert.equal(C.pourProblem(tubes, board, 1, 2), null); // blue into the blue tube
+  // Every color finished, but the labeled tube is empty: not done yet.
+  assert.equal(C.isSolved([[0, 0, 0, 0], [1, 1, 1, 1], [], []], board), false);
+  assert.equal(C.isSolved([[0, 0, 0, 0], [], [1, 1, 1, 1], []], board), true);
 });
 
 test('small tubes cannot hold a finished color', () => {
@@ -198,19 +211,34 @@ test('generated puzzles are solvable, fair, and use distinct lab colors', () => 
   }
 });
 
-test('special boards generate, can be finished, and keep their shape', () => {
-  for (const shape of ['beaker', 'boosters', 'minis', 'stairs']) {
-    for (const units of [4, 5, 6]) {
-      const colors = Math.min(8, C.maxColorsFor(units, 0, shape));
-      const p = C.generate({ colors, cap: units, empties: 0, shape, seed: `shape-${shape}-${units}` });
-      assert.ok(p, `no ${shape} puzzle at height ${units}`);
+test('every mode generates fair puzzles where the mode matters', () => {
+  for (const text of MODE_SETS) {
+    const modes = C.parseModes(text);
+    for (const units of [4, 6]) {
+      const colors = Math.max(C.minColorsFor(modes), 7);
+      const p = C.generate({ colors, cap: units, empties: 2, modes, seed: `mode-${text}-${units}` });
+      assert.ok(p, `no ${text} puzzle at height ${units}`);
+      const board = { caps: p.caps, labels: p.labels, units };
       assert.equal(p.caps.length, p.tubes.length);
-      p.tubes.forEach((t, i) => assert.ok(t.length <= p.caps[i], `${shape} tube ${i} overfilled`));
-      const board = { caps: p.caps, units };
-      assert.ok(C.isSolved(replay(p.tubes, board, p.solution), board), `${shape} height ${units}`);
+      p.tubes.forEach((t, i) => assert.ok(t.length <= p.caps[i], `${text} tube ${i} overfilled`));
       for (let c = 0; c < colors; c++) assert.equal(p.tubes.flat().filter((x) => x === c).length, units);
-      if (shape === 'beaker') assert.equal(Math.max(...p.caps), units * 2);
-      if (shape === 'minis') assert.ok(Math.min(...p.caps) < units);
+      const end = replay(p.tubes, board, p.solution);
+      assert.ok(C.isSolved(end, board), `${text} height ${units}`);
+      assert.ok(p.fair, `${text} height ${units}: ${(p.deadEnds * 100).toFixed(0)}% dead ends`);
+      assert.ok(C.modesMatter(p.tubes, board, modes, p.solution), `${text} height ${units}: mode makes no difference`);
+      if (modes.giant) {
+        const giants = p.caps.map((c, i) => i).filter((i) => p.caps[i] === units * 2);
+        assert.equal(giants.length, modes.giant);
+        giants.forEach((i) => assert.equal(p.tubes[i].length, units * 2, 'giant tubes start packed'));
+      }
+      if (modes.minis) assert.ok(p.caps.some((c) => c < units));
+      if (modes.labels) {
+        p.labels.forEach((l, i) => {
+          if (l < 0) return;
+          assert.equal(p.tubes[i].length, 0, 'labeled tubes start empty');
+          assert.ok(end[i].length === units && end[i].every((c) => c === l), 'labeled tube ends with its color');
+        });
+      }
     }
   }
 });
@@ -219,11 +247,11 @@ test('the first 80 campaign levels generate and can be finished', () => {
   for (let level = 1; level <= 80; level++) {
     const spec = C.levelSpec(level);
     if (!spec.tutorial) {
-      assert.ok(spec.colors <= C.maxColorsFor(spec.cap, spec.empties, spec.shape), `level ${level} is too big`);
+      assert.ok(spec.colors <= C.maxColorsFor(spec.cap, spec.empties, spec.modes), `level ${level} is too big`);
     }
     const p = C.generateLevel(level);
     assert.ok(p && p.tubes, `level ${level}`);
-    const board = { caps: p.caps, units: p.units };
+    const board = { caps: p.caps, labels: p.labels, units: p.units };
     assert.ok(C.isSolved(replay(p.tubes, board, p.solution), board), `level ${level}`);
     assert.equal(p.par, p.solution.length);
     if (!spec.tutorial) assert.ok(p.fair, `level ${level} has too many dead ends (${(p.deadEnds * 100).toFixed(0)}%)`);

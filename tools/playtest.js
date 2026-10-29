@@ -108,7 +108,8 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('color-lab-v1')));
     console.log(`level ${level}: won in ${await moves(p)} moves, ${stars} stars, unlocked ${saved.unlocked}`);
     check(saved.unlocked === level + 1, `level ${level} unlocks the next`);
-    check(level === 12 || level === 31 ? stars === 2 : stars === 3, `level ${level} stars`);
+    // Level 31 finishes one pour over the robot's count, inside the 3-star leeway.
+    check(level === 12 ? stars === 2 : stars === 3, `level ${level} stars`);
     if (level === 2) {
       // The win card can be closed to look at the finished board, or left for home.
       await p.click('#winClose');
@@ -212,23 +213,52 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await q.click('#jumpForm button');
     await q.waitForSelector('.tube');
     check((await q.textContent('#levelTitle')).includes('155'), 'jump to experiment 155');
-    // Custom boards make codes with a shape digit; old six-digit codes still work.
+    // Giant Tubes from Mix your own: the code carries the mode, and the giant
+    // tube is drawn taller and starts packed.
     await q.click('#homeBtn');
     await q.click('#customBtn');
-    await q.click('label:has(input[value="beaker"])');
+    await q.click('label:has(#modeGiant)');
     await q.click('#mixBtn');
     await q.waitForSelector('.tube');
     const title = await q.textContent('#levelTitle');
-    check(/Lab code \d{5}01-\d+/.test(title), `beaker code has shape digit 1 (${title})`);
-    const tallest = await q.evaluate(() => Math.max(...[...document.querySelectorAll('.tube')].map((t) => t.offsetHeight)));
-    const shortest = await q.evaluate(() => Math.min(...[...document.querySelectorAll('.tube')].map((t) => t.offsetHeight)));
-    check(tallest > shortest * 1.5, 'big beaker is drawn taller');
+    check(/Lab code \d{6}10-\d+/.test(title), `giant code has giant digit 1 (${title})`);
+    const heights = await q.evaluate(() => [...document.querySelectorAll('.tube')].map((t) => t.offsetHeight));
+    check(Math.max(...heights) > Math.min(...heights) * 1.5, 'giant tube is drawn taller');
+    // Labeled Tubes: a labeled tube refuses other colors and says so.
+    await q.click('#homeBtn');
+    await q.click('#customBtn');
+    await q.click('label:has(#modeGiant)');
+    await q.click('label:has(#modeLabels)');
+    await q.click('#mixBtn');
+    await q.waitForSelector('.tube.labeled');
+    const refusal = await q.evaluate(() => {
+      const tubes = [...document.querySelectorAll('.tube')];
+      const labeled = tubes.findIndex((t) => t.classList.contains('labeled'));
+      const label = getComputedStyle(tubes[labeled]).getPropertyValue('--label').trim();
+      // Find a tube whose top color differs from the label.
+      const from = tubes.findIndex((t) => {
+        const top = t.querySelector('.liquid .seg:last-child');
+        return top && getComputedStyle(top).getPropertyValue('--c').trim() !== label;
+      });
+      return { labeled, from };
+    });
+    await q.locator('.tube').nth(refusal.from).click();
+    await q.locator('.tube').nth(refusal.labeled).click();
+    const said = await q.textContent('#say');
+    check(/^That tube only takes [a-z ]+!$/.test(said), `labeled tube refuses other colors (${said})`);
+    check((await moves(q)) === 0, 'refused pour does not count');
+    // Codes: old six-digit codes are classic; old board shapes are explained.
     await q.click('#homeBtn');
     await q.click('#customBtn');
     await q.fill('#codeInput', '064220-1234');
     await q.click('#codeForm button');
     await q.waitForSelector('.tube');
-    check((await q.textContent('#levelTitle')).includes('0642200-1234'), 'old code opens as a classic board');
+    check((await q.textContent('#levelTitle')).includes('06422000-1234'), 'old code opens as a classic board');
+    await q.click('#homeBtn');
+    await q.click('#customBtn');
+    await q.fill('#codeInput', '0642201-1234');
+    await q.click('#codeForm button');
+    check((await q.textContent('#codeError')).includes('older version'), 'old board code explains itself');
     await ctx.close();
   }
 
