@@ -942,17 +942,15 @@
   /*
    * Says what the warning means (the solver tried every way forward and all
    * of them end stuck, even if some pours are still possible) and what fixes
-   * it: how many pours to undo, and whether the extra tube would.
+   * it: how many pours to undo, and whether the extra tube would. It never
+   * blames a kind of pour (like filling the last empty tube), because the
+   * same kind of pour is often the right move on another turn.
    */
   function stuckMessage(r, again) {
     const noPours = !Core.hasUsefulMove(game.tubes, game.board);
-    const last = game.history[game.history.length - 1];
-    const usedLastEmpty =
-      !again && !noPours && r.undos === 1 && last && last.tubes.some((t) => !t.length) && !game.tubes.some((t) => !t.length);
     let what;
     if (again) what = 'Still a dead end.';
     else if (noPours) what = 'No pours left!';
-    else if (usedLastEmpty) what = 'Dead end! That pour used your last empty tube, so every way from here gets stuck.';
     else what = 'Dead end! You can still pour, but every way from here gets stuck.';
     let fix;
     if (r.undos) {
