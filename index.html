@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Color Lab</title>
+<meta name="description" content="Sort the glowing samples so every tube holds one color. Endless science lab puzzles for kids.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<!-- page:start -->
+<div class="wall" aria-hidden="true">
+  <svg class="porthole" viewBox="0 0 200 200">
+    <defs>
+      <radialGradient id="pSky" cx="35%" cy="30%" r="80%">
+        <stop offset="0" stop-color="#7FD3FF"/>
+        <stop offset="1" stop-color="#4C7DFF"/>
+      </radialGradient>
+      <clipPath id="pClip"><circle cx="100" cy="100" r="78"/></clipPath>
+    </defs>
+    <circle cx="100" cy="100" r="96" fill="#CFDBF5"/>
+    <circle cx="100" cy="100" r="88" fill="#F7FAFF"/>
+    <circle cx="100" cy="100" r="78" fill="url(#pSky)"/>
+    <g clip-path="url(#pClip)">
+      <circle class="twinkle" cx="52" cy="58" r="2.6" fill="#fff"/>
+      <circle class="twinkle t2" cx="140" cy="44" r="2" fill="#fff"/>
+      <circle class="twinkle t3" cx="150" cy="128" r="2.4" fill="#fff"/>
+      <circle class="twinkle t2" cx="66" cy="140" r="1.8" fill="#fff"/>
+      <circle class="twinkle" cx="104" cy="34" r="1.6" fill="#fff"/>
+      <circle cx="96" cy="104" r="34" fill="#FFB547"/>
+      <path d="M68 92c14 6 40 6 56-2M66 110c18 7 42 6 60-3" stroke="#FF8A3D" stroke-width="6" stroke-linecap="round" fill="none"/>
+      <ellipse cx="96" cy="104" rx="58" ry="13" fill="none" stroke="#FF6FB7" stroke-width="5" transform="rotate(-16 96 104)"/>
+      <circle cx="158" cy="72" r="9" fill="#C6F6D5"/>
+    </g>
+    <g fill="#AFC0E6">
+      <circle cx="100" cy="9" r="4"/><circle cx="191" cy="100" r="4"/>
+      <circle cx="100" cy="191" r="4"/><circle cx="9" cy="100" r="4"/>
+    </g>
+  </svg>
+  <div class="bubbles"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+</div>
+
+<main id="app">
+  <!-- Home -->
+  <section id="home" class="screen home">
+    <div class="home-inner">
+      <div class="logo-tubes" aria-hidden="true">
+        <span class="mini" style="--a:var(--c1);--b:var(--c6);--c:var(--c9)"></span>
+        <span class="mini tall" style="--a:var(--c7);--b:var(--c2);--c:var(--c4)"></span>
+        <span class="mini" style="--a:var(--c3);--b:var(--c8);--c:var(--c0)"></span>
+      </div>
+      <h1 class="logo"><span>Color</span> <span>Lab</span></h1>
+      <p class="tagline">Pour the glowing samples until every tube is one color.</p>
+      <div class="home-actions">
+        <button id="playBtn" class="big-btn primary" type="button">
+          <span class="big-label">Play</span>
+          <span id="playSub" class="big-sub">Experiment 1</span>
+        </button>
+        <button id="levelsBtn" class="big-btn" type="button"><span class="big-label">Levels</span></button>
+        <button id="customBtn" class="big-btn" type="button"><span class="big-label">Mix your own</span></button>
+      </div>
+      <div class="home-toggles">
+        <label class="toggle"><input id="soundToggle" type="checkbox" checked> <span>Sound</span></label>
+        <label class="toggle"><input id="shapesToggle" type="checkbox"> <span>Color shapes</span></label>
+      </div>
+      <p class="rules"><b>How to play:</b> tap a tube, then tap where to pour. You can pour onto the same color or into an empty tube.</p>
+    </div>
+  </section>
+
+  <!-- Level map -->
+  <section id="levels" class="screen" hidden>
+    <header class="screen-head">
+      <button class="icon-btn back" type="button" data-go="home" aria-label="Back to home"></button>
+      <h2>Choose an experiment</h2>
+    </header>
+    <div id="labList" class="lab-list"></div>
+  </section>
+
+  <!-- Custom puzzle -->
+  <section id="custom" class="screen" hidden>
+    <header class="screen-head">
+      <button class="icon-btn back" type="button" data-go="home" aria-label="Back to home"></button>
+      <h2>Mix your own</h2>
+    </header>
+    <div class="custom-card">
+      <div class="stepper" data-key="colors">
+        <span class="step-label">Colors</span>
+        <button class="step-btn" type="button" data-step="-1" aria-label="Fewer colors">−</button>
+        <output id="colorsOut" class="step-value">6</output>
+        <button class="step-btn" type="button" data-step="1" aria-label="More colors">+</button>
+      </div>
+      <div class="stepper" data-key="cap">
+        <span class="step-label">Tube size</span>
+        <button class="step-btn" type="button" data-step="-1" aria-label="Shorter tubes">−</button>
+        <output id="capOut" class="step-value">4</output>
+        <button class="step-btn" type="button" data-step="1" aria-label="Taller tubes">+</button>
+      </div>
+      <div class="stepper" data-key="empties">
+        <span class="step-label">Empty tubes</span>
+        <button class="step-btn" type="button" data-step="-1" aria-label="Fewer empty tubes">−</button>
+        <output id="emptiesOut" class="step-value">2</output>
+        <button class="step-btn" type="button" data-step="1" aria-label="More empty tubes">+</button>
+      </div>
+      <p id="sizeNote" class="note" hidden></p>
+      <fieldset class="chips">
+        <legend class="step-label">Challenge</legend>
+        <label><input type="radio" name="difficulty" value="easy"><span>Easy</span></label>
+        <label><input type="radio" name="difficulty" value="medium" checked><span>Medium</span></label>
+        <label><input type="radio" name="difficulty" value="hard"><span>Hard</span></label>
+        <label><input type="radio" name="difficulty" value="genius"><span>Genius</span></label>
+      </fieldset>
+      <label class="toggle wide"><input id="mysteryToggle" type="checkbox"> <span>Mystery layers <small>(hidden until you uncover them)</small></span></label>
+      <button id="mixBtn" class="big-btn primary" type="button"><span class="big-label">Mix it!</span></button>
+      <form id="codeForm" class="code-form">
+        <label for="codeInput">Have a lab code?</label>
+        <div class="code-row">
+          <input id="codeInput" inputmode="numeric" autocomplete="off" placeholder="064220-1234" maxlength="11">
+          <button class="small-btn" type="submit">Go</button>
+        </div>
+        <p id="codeError" class="note bad" hidden></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- Playing -->
+  <section id="play" class="screen play" hidden>
+    <header class="hud">
+      <button id="homeBtn" class="icon-btn" type="button" aria-label="Menu"></button>
+      <div class="hud-title">
+        <span id="labName" class="lab-pill">Bubble Lab</span>
+        <h1 id="levelTitle">Experiment 1</h1>
+      </div>
+      <div class="hud-moves" aria-live="polite"><span>Moves</span><b id="moveCount">0</b></div>
+      <button id="soundBtn" class="icon-btn" type="button" aria-label="Sound on" aria-pressed="true"></button>
+    </header>
+    <div class="robot-line">
+      <svg class="robot" viewBox="0 0 64 64" aria-hidden="true">
+        <line x1="32" y1="12" x2="32" y2="4" stroke="#56608F" stroke-width="3" stroke-linecap="round"/>
+        <circle class="antenna" cx="32" cy="5" r="4.5" fill="#FF8A3D"/>
+        <rect x="8" y="12" width="48" height="40" rx="14" fill="#fff" stroke="#9FB3E0" stroke-width="3"/>
+        <rect x="14" y="19" width="36" height="25" rx="9" fill="#26305E"/>
+        <g class="eyes"><circle cx="24" cy="30" r="4.5" fill="#5CF2E8"/><circle cx="40" cy="30" r="4.5" fill="#5CF2E8"/></g>
+        <path d="M26 38q6 4 12 0" stroke="#5CF2E8" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+        <circle cx="13" cy="42" r="3" fill="#FFB3C7"/><circle cx="51" cy="42" r="3" fill="#FFB3C7"/>
+        <rect x="4" y="26" width="5" height="12" rx="2.5" fill="#9FB3E0"/><rect x="55" y="26" width="5" height="12" rx="2.5" fill="#9FB3E0"/>
+      </svg>
+      <p id="say" class="speech" aria-live="polite">Let's sort some samples!</p>
+    </div>
+    <div id="board" class="board" role="group" aria-label="Lab tubes"></div>
+    <div id="loading" class="loading" hidden>
+      <span class="flask" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>Mixing samples…</span>
+    </div>
+    <nav class="toolbar" aria-label="Lab tools">
+      <button id="undoBtn" class="tool" type="button" style="--tool:var(--sky)"><span class="tool-icon"></span><span class="tool-label">Undo</span><span class="badge" id="undoBadge" hidden></span></button>
+      <button id="restartBtn" class="tool" type="button" style="--tool:var(--orange)"><span class="tool-icon"></span><span class="tool-label">Restart</span></button>
+      <button id="hintBtn" class="tool" type="button" style="--tool:var(--sun)"><span class="tool-icon"></span><span class="tool-label">Hint</span><span class="badge" id="hintBadge"></span></button>
+      <button id="tubeBtn" class="tool" type="button" style="--tool:var(--mint)"><span class="tool-icon"></span><span class="tool-label">Extra tube</span><span class="badge" id="tubeBadge"></span></button>
+    </nav>
+  </section>
+</main>
+
+<div id="win" class="overlay" hidden>
+  <div class="win-card" role="dialog" aria-modal="true" aria-labelledby="winTitle">
+    <p class="win-eyebrow" id="winLab">Bubble Lab</p>
+    <h2 id="winTitle">Experiment complete!</h2>
+    <div class="stars" id="winStars" aria-label="3 stars"><i></i><i></i><i></i></div>
+    <p id="winStats" class="win-stats">23 moves</p>
+    <p id="winNote" class="win-note"></p>
+    <p id="winCode" class="win-code" hidden></p>
+    <div class="win-actions">
+      <button id="nextBtn" class="big-btn primary" type="button"><span class="big-label">Next experiment</span></button>
+      <button id="replayBtn" class="small-btn alt" type="button">Play again</button>
+    </div>
+  </div>
+</div>
+<canvas id="confetti" class="confetti" aria-hidden="true"></canvas>
+
+<script src="js/core.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/game.js"></script>
+<!-- page:end -->
+</body>
+</html>

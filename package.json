@@ -1,0 +1,11 @@
+{
+  "name": "color-lab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A colorful sci-fi liquid sorting puzzle for kids, with a level generator.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "campaign": "node tools/campaign.js 1 90",
+    "build": "node tools/build-artifact.js dist/color-lab.html --standalone"
+  }
+}
