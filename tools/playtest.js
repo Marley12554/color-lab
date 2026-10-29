@@ -39,6 +39,13 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     check((await moves(p)) === 1, `level ${level} move counted`);
     await p.click('#undoBtn');
     check((await moves(p)) === 0, `level ${level} undo`);
+    // Undo has no limit, even on later levels where it used to be capped at 5.
+    if (level === 47) {
+      for (const [f, t] of sol.solution.slice(0, 8)) await pour(p, f, t);
+      for (let i = 0; i < 8; i++) await p.click('#undoBtn');
+      check((await moves(p)) === 0, 'eight undos in a row');
+      check(await p.isDisabled('#undoBtn'), 'undo off with nothing to undo');
+    }
     // An extra tube adds one empty tube at the end and does not shift indices.
     if (level === 12) {
       await p.click('#tubeBtn');

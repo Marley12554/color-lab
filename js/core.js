@@ -608,15 +608,8 @@
     return Object.assign(generate(spec), spec);
   }
 
-  // Undo and hint allowances. Early levels are forgiving on purpose.
-  function helpsFor(spec) {
-    const hard = spec.level ? spec.level > 20 : spec.difficulty === 'hard' || spec.difficulty === 'genius';
-    return {
-      undos: hard ? (spec.difficulty === 'genius' ? 3 : 5) : Infinity,
-      hints: 3,
-      extraTubes: 1,
-    };
-  }
+  // Help per level. Undo is unlimited, so it is not counted.
+  const HELPS = { hints: 3, extraTubes: 1 };
 
   const api = {
     hashString,
@@ -642,7 +635,7 @@
     labOf,
     levelSpec,
     generateLevel,
-    helpsFor,
+    HELPS,
     maxColorsFor,
     DIFFICULTY_PICKS,
     PALETTE_SIZE,

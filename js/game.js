@@ -321,7 +321,7 @@
     tubes: [],
     hidden: [],
     history: [],
-    helps: { undos: Infinity, hints: 3, extraTubes: 1 },
+    helps: Object.assign({}, Core.HELPS),
     helped: false,
     selected: -1,
     busy: false,
@@ -450,7 +450,7 @@
     game.helped = false;
     game.busy = false;
     game.checkToken++;
-    game.helps = Object.assign({}, Core.helpsFor(game.mode === 'level' ? { level: game.level } : { difficulty: game.custom.difficulty }));
+    game.helps = Object.assign({}, Core.HELPS);
     clearStuck();
     clearHint();
     buildBoard();
@@ -598,10 +598,7 @@
     const h = game.helps;
     const ready = !!game.puzzle && !game.done;
     $('moveCount').textContent = String(game.history.length);
-    const undoBadge = $('undoBadge');
-    undoBadge.hidden = h.undos === Infinity;
-    undoBadge.textContent = h.undos === Infinity ? '' : String(h.undos);
-    $('undoBtn').disabled = !ready || !game.history.length || h.undos <= 0;
+    $('undoBtn').disabled = !ready || !game.history.length;
     $('restartBtn').disabled = !game.puzzle;
     $('hintBadge').textContent = String(h.hints);
     $('hintBtn').disabled = !ready || h.hints <= 0;
@@ -832,18 +829,17 @@
   // ---------- Tools ----------
 
   function undo() {
-    if (game.busy || game.done || !game.history.length || game.helps.undos <= 0) return;
+    if (game.busy || game.done || !game.history.length) return;
     deselect();
     clearHint();
     clearStuck();
     game.tubes = game.history.pop().tubes;
-    if (game.helps.undos !== Infinity) game.helps.undos--;
     game.checkToken++;
     normalizeHidden();
     renderAll();
     updateHud();
     Sound.whoosh();
-    say(game.helps.undos === Infinity ? 'Undone!' : game.helps.undos + ' undos left.');
+    say('Undone!');
     if (game.mode === 'level' && game.level === 1) autoHint();
   }
 
@@ -1212,7 +1208,7 @@
         tubes: g.tubes,
         hidden: g.hidden,
         history: g.history,
-        helps: Object.assign({}, g.helps, { undos: g.helps.undos == null ? Infinity : g.helps.undos }),
+        helps: Object.assign({}, g.helps),
         helped: g.helped,
       });
       buildBoard();
