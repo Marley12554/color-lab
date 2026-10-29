@@ -33,13 +33,16 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       return { solution: lv.solution, tubes: lv.tubes.length };
     }, level);
     check((await p.locator('.tube').count()) === sol.tubes, `level ${level} tube count`);
+    check(await p.isDisabled('#restartBtn'), `level ${level} restart off before any move`);
     // One pour, then undo it.
     const [f0, t0] = sol.solution[0];
     await pour(p, f0, t0);
+    check(!(await p.isDisabled('#restartBtn')), `level ${level} restart on after a pour`);
     check((await moves(p)) === 1, `level ${level} move counted`);
     await p.click('#undoBtn');
     check((await moves(p)) === 1, `level ${level} undone pour still counts`);
     check(await p.isDisabled('#undoBtn'), `level ${level} undo off with nothing to undo`);
+    check(!(await p.isDisabled('#restartBtn')), `level ${level} restart stays on after undoing to the start`);
     // Undo has no limit, even on later levels where it used to be capped at 5.
     if (level === 47) {
       for (const [f, t] of sol.solution.slice(0, 8)) await pour(p, f, t);
@@ -85,7 +88,11 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     if (level !== 31) {
       await p.click('#restartBtn');
       check((await moves(p)) === 0, `level ${level} restart zeroes moves`);
-      if (level === 12) await p.click('#tubeBtn');
+      check(await p.isDisabled('#restartBtn'), `level ${level} restart off again after restarting`);
+      if (level === 12) {
+        await p.click('#tubeBtn');
+        check(!(await p.isDisabled('#restartBtn')), 'restart on after using the extra tube');
+      }
     }
     for (const [f, t] of sol.solution) await pour(p, f, t);
     await p.waitForSelector('#win:not([hidden])', { timeout: 5000 });

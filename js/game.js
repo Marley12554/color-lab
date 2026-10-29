@@ -605,7 +605,9 @@
     const ready = !!game.puzzle && !game.done;
     $('moveCount').textContent = String(game.moves);
     $('undoBtn').disabled = !ready || !game.history.length;
-    $('restartBtn').disabled = !game.puzzle;
+    // Nothing to restart until a pour or a help has been used. Undoing back
+    // to the start keeps it on, since the move count still needs resetting.
+    $('restartBtn').disabled = !game.puzzle || (game.moves === 0 && !game.helped);
     $('hintBadge').textContent = String(h.hints);
     $('hintBtn').disabled = !ready || h.hints <= 0;
     $('tubeBadge').textContent = String(h.extraTubes);
