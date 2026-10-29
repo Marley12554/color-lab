@@ -143,7 +143,7 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     console.log(`stuck after ${plan.path.length} pour(s): "${await p.textContent('#say')}"`);
     check(await p.evaluate(() => document.getElementById('undoBtn').classList.contains('pulse')), 'undo pulses');
     check((await p.textContent('#undoBadge')) === '1' && (await p.isVisible('#undoBadge')), 'undo button shows how many to undo');
-    check((await p.textContent('#say')).includes('every way from here gets stuck'), 'warning explains what a dead end is');
+    check((await p.textContent('#say')) === "Dead end! This mix can't be finished. Undo 1 pour. Or use the extra tube.", 'warning says it plainly');
     const before = await moves(p);
     await tube(p, 0).click();
     await tube(p, 1).click();

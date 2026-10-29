@@ -723,7 +723,7 @@
       void el.offsetWidth;
       el.classList.add('shake');
       setTimeout(() => el.classList.remove('shake'), 400);
-      showStuck('This mix is stuck. Tap Undo to go back!');
+      showStuck("This mix can't be finished. Tap Undo!");
       return;
     }
     const sel = game.selected;
@@ -951,12 +951,12 @@
     let what;
     if (again) what = 'Still a dead end.';
     else if (noPours) what = 'No pours left!';
-    else what = 'Dead end! You can still pour, but every way from here gets stuck.';
+    else what = "Dead end! This mix can't be finished.";
     let fix;
     if (r.undos) {
-      fix = 'Undo ' + r.undos + (again ? ' more' : '') + (r.undos === 1 ? ' pour' : ' pours') + ' to fix it.';
+      fix = 'Undo ' + r.undos + (again ? ' more' : '') + (r.undos === 1 ? ' pour.' : ' pours.');
     } else fix = 'Undo a few pours, or restart.';
-    if (r.extraTube) fix += ' Or try the extra tube!';
+    if (r.extraTube) fix += ' Or use the extra tube.';
     return what + ' ' + fix;
   }
 
