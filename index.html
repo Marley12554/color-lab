@@ -178,6 +178,7 @@
 
 <div id="win" class="overlay" hidden>
   <div class="win-card" role="dialog" aria-modal="true" aria-labelledby="winTitle">
+    <button id="winClose" class="win-close" type="button" aria-label="Close"></button>
     <p class="win-eyebrow" id="winLab">Bubble Lab</p>
     <h2 id="winTitle">Experiment complete!</h2>
     <div class="stars" id="winStars" aria-label="3 stars"><i></i><i></i><i></i></div>
@@ -186,7 +187,10 @@
     <p id="winCode" class="win-code" hidden></p>
     <div class="win-actions">
       <button id="nextBtn" class="big-btn primary" type="button"><span class="big-label">Next experiment</span></button>
-      <button id="replayBtn" class="small-btn alt" type="button">Play again</button>
+      <div class="win-row">
+        <button id="replayBtn" class="small-btn alt" type="button">Play again</button>
+        <button id="winHome" class="small-btn alt" type="button">Home</button>
+      </div>
     </div>
   </div>
 </div>

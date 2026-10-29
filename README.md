@@ -29,7 +29,7 @@ To put it online with GitHub Pages: make the repository public, open **Settings 
 - **Stars.** 3 stars for matching or beating the robot's move count, 2 stars within 40% of it, 1 star for finishing. Every pour counts, including ones you undo; Restart starts the count over.
 - **Dead-end warning.** After each pour the solver quietly tries every way forward. If none of them can be finished, the robot says so in plain words ("Dead end! This mix can't be finished. Undo 1 pour."), even when some pours are still possible, and adds "Or use the extra tube." when that would rescue it. The tubes turn gray and stop taking pours, the Undo button shows the number to undo, and the board stays gray until you're back at a mix that can be finished.
 - **Color shapes.** An option that marks every color with its own shape, for color-blind players.
-- Sounds are synthesized in the browser (no audio files): taps on every button, a jingle when a level starts, soft bubbling on the title screen (after the first tap, since browsers block sound until then), and pour, seal, and win sounds. Progress is saved in the browser.
+- Sounds are synthesized in the browser (no audio files): taps on every button, a soft pop when the mouse moves onto one, a jingle when a level starts, and pour, seal, and win sounds. Browsers block sound until the first tap, so the game is silent until then. Progress is saved in the browser.
 
 ## How levels are made
 

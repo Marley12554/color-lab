@@ -1256,6 +1256,7 @@ input:focus-visible,
 }
 
 .win-card {
+  position: relative;
   width: min(100%, 380px);
   padding: 22px 20px 20px;
   display: flex;
@@ -1367,6 +1368,35 @@ input:focus-visible,
   display: grid;
   gap: 10px;
   margin-top: 8px;
+}
+
+.win-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.win-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 14px;
+  background: #eef2fc;
+  color: var(--ink-soft);
+}
+
+.win-close svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.8;
+  stroke-linecap: round;
 }
 
 .confetti {

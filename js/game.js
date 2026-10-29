@@ -195,7 +195,6 @@
       $(id).hidden = id !== name;
     });
     $('win').hidden = true;
-    Sound.bubbles(name === 'home');
     if (name === 'home') renderHome();
     if (name === 'levels') renderLevels();
     if (name === 'custom') renderCustom();
@@ -1063,6 +1062,8 @@
   function addTube() {
     if (game.busy || game.done || game.helps.extraTubes <= 0) return;
     deselect();
+    // A hint already paid for is worked out again for the new board, free.
+    const hadHint = !!game.hint;
     clearHint();
     const wasStuck = game.stuck;
     game.helps.extraTubes--;
@@ -1083,9 +1084,19 @@
       });
     }
     Sound.whoosh();
-    say('Here is an extra empty tube!');
+    say(hadHint ? 'Here is an extra empty tube! I updated your hint.' : 'Here is an extra empty tube!');
     updateHud();
     checkStuck(wasStuck);
+    if (hadHint) {
+      const token = game.checkToken;
+      job('solve', { tubes: Core.encode(game.tubes), cap: game.board, maxNodes: 80000 })
+        .then((r) => {
+          if (token === game.checkToken && !game.done && !game.busy && r.status === 'solved' && r.moves.length) {
+            showHint(r.moves[0]);
+          }
+        })
+        .catch(() => {});
+    }
   }
 
   // `undos` is how many pours to undo, shown on the Undo button; leave it
@@ -1247,6 +1258,19 @@
     // Every button and switch outside the board makes a sound: Play and
     // Mix it get a jingle, the rest a tap. Tubes and the lab tools have
     // sounds of their own.
+    // Moving the mouse onto anything clickable pops, so you can hear that the
+    // game noticed. Touch screens have no hover, so this is mouse only.
+    let hovered = null;
+    document.addEventListener('pointerover', (e) => {
+      if (e.pointerType !== 'mouse') return;
+      const found = e.target.closest('button, label.toggle, .chips label');
+      const el = found && !found.classList.contains('tube') ? found : null;
+      if (el === hovered) return;
+      hovered = el;
+      const control = el && (el.matches('button') ? el : el.querySelector('input'));
+      if (el && control && !control.disabled) Sound.pop();
+    });
+
     document.addEventListener('click', (e) => {
       const el = e.target.closest('button, input[type="checkbox"], input[type="radio"]');
       if (!el || el.disabled || el.closest('.tube, .tool, .step-btn')) return;
@@ -1290,6 +1314,14 @@
       else startCustom(Object.assign({}, game.custom, { seed: 1000 + Math.floor(Math.random() * 9000) }));
     });
     $('replayBtn').addEventListener('click', restart);
+    // Closing the card leaves the finished board on screen; Home is one tap
+    // away there too.
+    $('winClose').innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    $('winClose').addEventListener('click', () => ($('win').hidden = true));
+    $('winHome').addEventListener('click', () => {
+      game.loadToken++;
+      show('home');
+    });
 
     document.querySelectorAll('.stepper').forEach((row) => {
       row.querySelectorAll('.step-btn').forEach((btn) =>
@@ -1334,7 +1366,10 @@
         e.preventDefault();
         undo();
       } else if (e.key === 'h') hint();
-      else if (e.key === 'Escape') deselect();
+      else if (e.key === 'Escape') {
+        if (!$('win').hidden) $('win').hidden = true;
+        else deselect();
+      }
       else if (/^[0-9]$/.test(e.key) && !e.ctrlKey) {
         const i = e.key === '0' ? 9 : Number(e.key) - 1;
         if (i < tubeEls.length) onTube(i);

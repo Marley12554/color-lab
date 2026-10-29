@@ -83,6 +83,13 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       await p.click('#hintBtn');
       await p.waitForSelector('.tube.hint-from');
       check((await p.textContent('#hintBadge')) === '1', 'new hint after a pour costs one');
+      // A hint already paid for survives the extra tube, worked out again for free.
+      await p.click('#restartBtn');
+      await p.click('#hintBtn');
+      await p.waitForSelector('.tube.hint-from');
+      await p.click('#tubeBtn');
+      await p.waitForSelector('.tube.hint-from');
+      check((await p.textContent('#hintBadge')) === '2', 'extra tube keeps the paid hint');
     }
     // Restart zeroes the count. Level 31 skips it to show an undone pour
     // costing a star: one extra pour on an 8-move level.
@@ -102,6 +109,18 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     console.log(`level ${level}: won in ${await moves(p)} moves, ${stars} stars, unlocked ${saved.unlocked}`);
     check(saved.unlocked === level + 1, `level ${level} unlocks the next`);
     check(level === 12 || level === 31 ? stars === 2 : stars === 3, `level ${level} stars`);
+    if (level === 2) {
+      // The win card can be closed to look at the finished board, or left for home.
+      await p.click('#winClose');
+      check(await p.isHidden('#win'), 'win card closes');
+      check(await p.isVisible('#board'), 'finished board still shown');
+      await p.click('#homeBtn');
+      check(await p.isVisible('#home'), 'home from the finished board');
+    }
+    if (level === 16) {
+      await p.click('#winHome');
+      check(await p.isVisible('#home'), 'win card Home button');
+    }
     if (level === 31) check((await p.textContent('#winStats')) === `${sol.solution.length + 1} moves (1 undone)`, 'win card counts the undone pour');
     await p.context().close();
   }
