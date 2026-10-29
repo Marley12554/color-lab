@@ -364,6 +364,7 @@
     game.done = false;
     game.busy = false;
     game.checkToken++;
+    clearHint();
     board.innerHTML = '';
     tubeEls = [];
     rackEls = [];
@@ -865,14 +866,24 @@
   function showHint(move) {
     if (!tubeEls[move[0]] || !tubeEls[move[1]]) return;
     clearHint();
+    void tubeEls[move[1]].offsetWidth; // restart the arrow's bounce
     game.hint = move;
     tubeEls[move[0]].classList.add('hint-from');
     tubeEls[move[1]].classList.add('hint-to');
   }
 
   async function hint() {
-    if (game.busy || game.done || game.hintPending || game.helps.hints <= 0) return;
+    if (game.busy || game.done || game.hintPending) return;
     deselect();
+    // Any pour, undo, restart, or extra tube clears the hint, so one still
+    // showing is still right. Asking again repeats it for free.
+    if (game.hint) {
+      showHint(game.hint);
+      Sound.hint();
+      say('Still my best idea: pour the glowing tube into the one with the arrow!');
+      return;
+    }
+    if (game.helps.hints <= 0) return;
     game.hintPending = true;
     say('Let me think…');
     const token = game.checkToken;

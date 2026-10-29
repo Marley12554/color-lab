@@ -47,6 +47,22 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       await p.click('#hintBtn');
       await p.waitForSelector('.tube.hint-from');
       check((await p.textContent('#hintBadge')) === '2', 'hint used');
+      // Asking again before changing anything repeats the hint for free.
+      for (let i = 0; i < 3; i++) await p.click('#hintBtn');
+      await p.waitForTimeout(200);
+      check((await p.textContent('#hintBadge')) === '2', 'repeat hint is free');
+      check((await p.locator('.tube.hint-from').count()) === 1, 'same hint still shown');
+      // After a pour, the next hint costs one again.
+      const [hf, ht] = await p.evaluate(() => [
+        [...document.querySelectorAll('.tube')].findIndex((t) => t.classList.contains('hint-from')),
+        [...document.querySelectorAll('.tube')].findIndex((t) => t.classList.contains('hint-to')),
+      ]);
+      await pour(p, hf, ht);
+      await p.click('#hintBtn');
+      await p.waitForSelector('.tube.hint-from');
+      check((await p.textContent('#hintBadge')) === '1', 'new hint after a pour costs one');
+      await p.click('#restartBtn');
+      await p.click('#tubeBtn');
     }
     for (const [f, t] of sol.solution) await pour(p, f, t);
     await p.waitForSelector('#win:not([hidden])', { timeout: 5000 });
