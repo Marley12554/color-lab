@@ -326,6 +326,7 @@
     // Every pour this try, including ones later undone. Restart zeroes it.
     moves: 0,
     undone: 0,
+    stuck: false,
     selected: -1,
     busy: false,
     done: false,
@@ -638,6 +639,15 @@
 
   function onTube(i) {
     if (game.busy || game.done || !game.puzzle) return;
+    if (game.stuck) {
+      const el = tubeEls[i];
+      el.classList.remove('shake');
+      void el.offsetWidth;
+      el.classList.add('shake');
+      setTimeout(() => el.classList.remove('shake'), 400);
+      showStuck('This mix is stuck. Tap Undo to go back!');
+      return;
+    }
     const sel = game.selected;
     if (sel < 0) {
       const t = game.tubes[i];
@@ -669,6 +679,7 @@
   async function pourInto(f, t) {
     game.busy = true;
     const token = game.loadToken;
+    game.checkToken++;
     clearHint();
     clearStuck();
     const color = game.tubes[f][game.tubes[f].length - 1];
@@ -820,19 +831,33 @@
       win();
       return;
     }
+    checkStuck(false);
+    if (game.mode === 'level' && game.level === 1) autoHint();
+  }
+
+  /*
+   * Asks the solver quietly whether the mix can still be finished, and grays
+   * the board when it can't. 'unsolvable' means every reachable position was
+   * tried, so no pour can help. While already gray (after an undo or an extra
+   * tube) the board stays gray until the answer comes back.
+   */
+  function checkStuck(again) {
+    const token = ++game.checkToken;
     if (!Core.hasUsefulMove(game.tubes, game.cap)) {
-      showStuck('Oops! No more pours. Try Undo or Restart.');
+      showStuck(again ? 'Still no pours here. Undo again!' : 'Oops! No more pours. Try Undo or Restart.');
       return;
     }
-    // Ask the solver quietly whether the mix can still be finished.
-    const token = ++game.checkToken;
     job('solve', { tubes: Core.encode(game.tubes), cap: game.cap, maxNodes: 25000 })
       .then((r) => {
         if (token !== game.checkToken || game.done) return;
-        if (r.status === 'unsolvable') showStuck("Uh-oh, this mix can't be finished now. Undo a few pours!");
+        if (r.status === 'unsolvable') {
+          showStuck(again ? 'Still stuck. Undo again!' : "Uh-oh, this mix can't be finished now. Undo a few pours!");
+        } else if (game.stuck) {
+          clearStuck();
+          say('Back on track! Keep going.');
+        }
       })
       .catch(() => {});
-    if (game.mode === 'level' && game.level === 1) autoHint();
   }
 
   // ---------- Tools ----------
@@ -841,15 +866,15 @@
     if (game.busy || game.done || !game.history.length) return;
     deselect();
     clearHint();
-    clearStuck();
+    const wasStuck = game.stuck;
     game.tubes = game.history.pop().tubes;
     game.undone++;
-    game.checkToken++;
     normalizeHidden();
     renderAll();
     updateHud();
     Sound.whoosh();
-    say('Undone!');
+    if (!wasStuck) say('Undone!');
+    checkStuck(wasStuck);
     if (game.mode === 'level' && game.level === 1) autoHint();
   }
 
@@ -936,10 +961,9 @@
     if (game.busy || game.done || game.helps.extraTubes <= 0) return;
     deselect();
     clearHint();
-    clearStuck();
+    const wasStuck = game.stuck;
     game.helps.extraTubes--;
     game.helped = true;
-    game.checkToken++;
     game.tubes.push([]);
     game.hidden.push(0);
     game.history.forEach((h) => h.tubes.push([]));
@@ -957,9 +981,13 @@
     Sound.whoosh();
     say('Here is an extra empty tube!');
     updateHud();
+    checkStuck(wasStuck);
   }
 
   function showStuck(text) {
+    game.stuck = true;
+    deselect();
+    board.classList.add('stuck');
     say(text);
     $('say').classList.add('alert');
     ['undoBtn', 'restartBtn', 'tubeBtn'].forEach((id) => $(id).classList.add('pulse'));
@@ -967,6 +995,8 @@
   }
 
   function clearStuck() {
+    game.stuck = false;
+    board.classList.remove('stuck');
     $('say').classList.remove('alert');
     ['undoBtn', 'restartBtn', 'tubeBtn'].forEach((id) => $(id).classList.remove('pulse'));
   }

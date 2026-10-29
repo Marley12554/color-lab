@@ -98,32 +98,66 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await p.context().close();
   }
 
-  // Random pours on a hard one-empty-tube level until it is stuck or won.
-  const p = await open(33);
-  let banner = false;
-  for (let i = 0; i < 80 && !banner; i++) {
-    const legal = await p.evaluate(() => {
-      const els = [...document.querySelectorAll('.tube')];
-      return els.length;
+  // Make a pour the solver proves is a dead end, then check the stuck board.
+  {
+    const p = await open(33);
+    const plan = await p.evaluate(() => {
+      const C = window.ColorLabCore;
+      const lv = C.generateLevel(33);
+      // Search for the shortest pour sequence that ends somewhere unfinishable.
+      let frontier = [{ tubes: lv.tubes, path: [] }];
+      for (let depth = 0; depth < 3; depth++) {
+        const next = [];
+        for (const node of frontier) {
+          for (let f = 0; f < node.tubes.length; f++) {
+            for (let t = 0; t < node.tubes.length; t++) {
+              if (!C.pourAmount(node.tubes, lv.cap, f, t)) continue;
+              const after = C.cloneTubes(node.tubes);
+              C.pour(after, lv.cap, f, t);
+              const path = node.path.concat([[f, t]]);
+              if (C.solve(after, lv.cap, { maxNodes: 1e6 }).status === 'unsolvable') {
+                const rescued = after.concat([[]]);
+                return { path, rescue: C.solve(rescued, lv.cap, { maxNodes: 1e6 }).status };
+              }
+              next.push({ tubes: after, path });
+            }
+          }
+        }
+        frontier = next;
+      }
+      return null;
     });
-    const f = Math.floor(Math.random() * legal), t = Math.floor(Math.random() * legal);
-    if (f === t) continue;
-    await tube(p, f).click();
-    await tube(p, t).click();
-    await p.waitForTimeout(120);
-    banner = await p.evaluate(() => document.getElementById('say').classList.contains('alert'));
-    if (await p.isVisible('#win')) break;
-  }
-  console.log('stuck warning seen:', banner, banner ? '"' + (await p.textContent('#say')) + '"' : '');
-  check(banner, 'random pours on level 33 should get stuck');
-  if (banner) {
+    check(!!plan, 'found a dead-end pour on level 33');
+    const gray = () => p.evaluate(() => document.getElementById('board').classList.contains('stuck'));
+    for (const [f, t] of plan.path) await pour(p, f, t);
+    await p.waitForTimeout(400);
+    check(await gray(), 'dead-end pour grays the board');
+    console.log(`stuck after ${plan.path.length} pour(s): "${await p.textContent('#say')}"`);
     check(await p.evaluate(() => document.getElementById('undoBtn').classList.contains('pulse')), 'undo pulses');
     const before = await moves(p);
-    await p.click('#undoBtn');
-    check((await moves(p)) === before, 'undo while stuck keeps the count');
-    check(!(await p.evaluate(() => document.getElementById('say').classList.contains('alert'))), 'warning clears after undo');
+    await tube(p, 0).click();
+    await tube(p, 1).click();
+    check((await moves(p)) === before, 'no pours while stuck');
+    check(!(await p.locator('.tube.lifted').count()), 'no tube lifts while stuck');
+    // Undo back to a position that can be finished.
+    for (let i = 0; i < 30 && (await gray()); i++) {
+      await p.click('#undoBtn');
+      await p.waitForTimeout(400);
+    }
+    check(!(await gray()), 'board un-grays once the mix can be finished');
+    check((await moves(p)) === before, 'undos keep the count');
+    console.log(`  after undo: "${await p.textContent('#say')}"`);
+    // Get stuck again, then see whether the extra tube rescues it.
+    const [lf, lt] = plan.path[plan.path.length - 1];
+    await pour(p, lf, lt);
+    await p.waitForTimeout(400);
+    check(await gray(), 'stuck again');
+    await p.click('#tubeBtn');
+    await p.waitForTimeout(400);
+    check((await gray()) === (plan.rescue === 'unsolvable'), `extra tube result matches the solver (${plan.rescue})`);
+    console.log(`  after extra tube: "${await p.textContent('#say')}"`);
+    await p.context().close();
   }
-  await p.context().close();
 
   // Leaving mid-pour or mid-celebration must not leak into the next screen.
   {
