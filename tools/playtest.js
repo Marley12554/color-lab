@@ -55,6 +55,16 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       await p.click('#hintBtn');
       await p.waitForSelector('.tube.hint-from');
       check((await p.textContent('#hintBadge')) === '2', 'hint used');
+      // The arrow points at the tube to pour from first, then moves to the target.
+      const arrows = () => p.evaluate(() => [...document.querySelectorAll('.tube')]
+        .map((t, i) => (getComputedStyle(t, '::after').content !== 'none' ? i : -1)).filter((i) => i >= 0));
+      const hintFrom = await p.evaluate(() => [...document.querySelectorAll('.tube')].findIndex((t) => t.classList.contains('hint-from')));
+      const hintTo = await p.evaluate(() => [...document.querySelectorAll('.tube')].findIndex((t) => t.classList.contains('hint-to')));
+      check(JSON.stringify(await arrows()) === JSON.stringify([hintFrom]), 'arrow starts on the tube to pour from');
+      await tube(p, hintFrom).click();
+      check(JSON.stringify(await arrows()) === JSON.stringify([hintTo]), 'arrow moves to the target after lifting');
+      await tube(p, hintFrom).click();
+      check(JSON.stringify(await arrows()) === JSON.stringify([hintFrom]), 'arrow goes back when put down');
       // Asking again before changing anything repeats the hint for free.
       for (let i = 0; i < 3; i++) await p.click('#hintBtn');
       await p.waitForTimeout(200);

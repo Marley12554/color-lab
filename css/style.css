@@ -1049,12 +1049,16 @@ input:focus-visible,
   box-shadow: 0 0 0 2px var(--glass-edge), 0 0 22px 2px color-mix(in srgb, var(--seal) 60%, transparent);
 }
 
-.tube.hint-from .glass,
-.tube.hint-to .glass {
+/* A hint shows one step at a time so the arrow always means "tap this
+   next": first the tube to pour from, then, once it is lifted, the tube to
+   pour into. */
+.board:not(.hint-picked) .tube.hint-from .glass,
+.board.hint-picked .tube.hint-to .glass {
   box-shadow: 0 0 0 4px var(--sun), 0 0 20px 4px rgba(255, 185, 46, 0.7);
 }
 
-.tube.hint-to::after {
+.board:not(.hint-picked) .tube.hint-from::after,
+.board.hint-picked .tube.hint-to::after {
   content: '';
   position: absolute;
   z-index: 5;

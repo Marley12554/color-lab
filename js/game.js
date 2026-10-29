@@ -616,11 +616,14 @@
   function select(i) {
     game.selected = i;
     tubeEls[i].classList.add('lifted');
+    syncHint();
+    if (game.hint && game.hint[0] === i) say('Now pour it into the tube with the arrow!');
   }
 
   function deselect() {
     if (game.selected >= 0 && tubeEls[game.selected]) tubeEls[game.selected].classList.remove('lifted');
     game.selected = -1;
+    syncHint();
   }
 
   function nudge(i, message) {
@@ -864,6 +867,12 @@
       game.hint.forEach((i) => tubeEls[i] && tubeEls[i].classList.remove('hint-from', 'hint-to'));
     }
     game.hint = null;
+    syncHint();
+  }
+
+  // Moves the hint arrow to the pour target once the hinted tube is lifted.
+  function syncHint() {
+    board.classList.toggle('hint-picked', !!game.hint && game.selected === game.hint[0]);
   }
 
   function showHint(move) {
@@ -873,6 +882,7 @@
     game.hint = move;
     tubeEls[move[0]].classList.add('hint-from');
     tubeEls[move[1]].classList.add('hint-to');
+    syncHint();
   }
 
   async function hint() {
@@ -883,7 +893,7 @@
     if (game.hint) {
       showHint(game.hint);
       Sound.hint();
-      say('Still my best idea: pour the glowing tube into the one with the arrow!');
+      say('Still my best idea: tap the tube with the arrow!');
       return;
     }
     if (game.helps.hints <= 0) return;
@@ -902,7 +912,7 @@
       game.helped = true;
       showHint(r.moves[0]);
       Sound.hint();
-      say('Pour the glowing tube into the one with the arrow!');
+      say('Tap the tube with the arrow!');
     } else if (r.status === 'unsolvable') {
       showStuck("Even I can't finish this mix. Try Undo!");
     } else {
