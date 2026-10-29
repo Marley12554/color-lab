@@ -262,6 +262,64 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await ctx.close();
   }
 
+  // Pause and resume, and boards that differ from mix to mix.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const q = await ctx.newPage();
+    q.on('pageerror', (e) => errors.push(String(e)));
+    await q.addInitScript(() => {
+      if (!sessionStorage.getItem('seeded')) {
+        sessionStorage.setItem('seeded', '1');
+        localStorage.setItem('color-lab-v1', JSON.stringify({ unlocked: 5, sound: false }));
+      }
+    });
+    await q.goto(url);
+    const labels = () => q.evaluate(() => [...document.querySelectorAll('.tube')].map((t) => t.getAttribute('aria-label')).join('|'));
+    // Two pours on level 5, then home: Play says resume and brings it back.
+    await q.click('#playBtn');
+    await q.waitForSelector('.tube');
+    const sol = await q.evaluate(() => window.ColorLabCore.generateLevel(5).solution);
+    for (const [f, t] of sol.slice(0, 2)) await pour(q, f, t);
+    const before = await labels();
+    await q.click('#homeBtn');
+    check((await q.textContent('#playSub')).includes('resume'), 'Play offers to resume level 5');
+    await q.reload();
+    await q.click('#levelsBtn');
+    await q.locator('.level-btn').nth(4).click();
+    await q.waitForSelector('.tube');
+    check((await moves(q)) === 2 && (await labels()) === before, 'level 5 resumes from the map after a reload');
+    // A mix in progress shows a Resume button on the home screen.
+    await q.click('#homeBtn');
+    await q.click('#customBtn');
+    await q.click('#mixBtn');
+    await q.waitForSelector('.tube');
+    const mixSol = await q.evaluate(() => {
+      const C = window.ColorLabCore;
+      const tubes = [...document.querySelectorAll('.tube')];
+      return tubes.length;
+    });
+    await q.locator('.tube').nth(0).click();
+    await q.locator('.tube').nth(mixSol - 1).click();
+    const mixMoves = await moves(q);
+    const mixBefore = await labels();
+    await q.click('#homeBtn');
+    check(await q.isVisible('#resumeBtn'), 'Resume button for a mix in progress');
+    await q.click('#resumeBtn');
+    await q.waitForSelector('.tube');
+    check((await moves(q)) === mixMoves && (await labels()) === mixBefore, 'mix resumes where it was');
+    // Same settings, different layouts.
+    const shapes = new Set();
+    for (let i = 0; i < 4; i++) {
+      await q.click('#homeBtn');
+      await q.click('#customBtn');
+      await q.click('#mixBtn');
+      await q.waitForSelector('.tube');
+      shapes.add(await q.evaluate(() => [...document.querySelectorAll('.tube')].map((t) => (t.querySelector('.seg') ? 'x' : 'o')).join('')));
+    }
+    check(shapes.size > 1, `mixes with the same settings differ in layout (${[...shapes].join(' ')})`);
+    await ctx.close();
+  }
+
   // Leaving mid-pour or mid-celebration must not leak into the next screen.
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -277,6 +335,7 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await q.click('#playBtn');
     await q.waitForTimeout(1500);
     check((await q.locator('.tube').count()) === 3, 'level reloads cleanly after leaving mid-pour');
+    check((await moves(q)) === 1, 'the pour made before leaving is kept');
     // Finish level 1, then leave before the win card appears.
     for (let i = 0; i < 3; i++) {
       await q.waitForSelector('.tube.hint-from');
@@ -284,6 +343,7 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       await q.click('.tube.hint-to');
       await q.waitForFunction(() => !document.querySelector('.tube.pouring'));
       await q.waitForTimeout(100);
+      if ((await q.textContent('#say')).startsWith('Experiment complete')) break;
     }
     await q.click('#homeBtn');
     await q.waitForTimeout(1200);

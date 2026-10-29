@@ -599,10 +599,14 @@
 
   /*
    * Builds the tubes for a board: each one's height, how full it starts, and
-   * its label, plus which tubes the layout features. `empties` is how many
+   * its label, plus where the layout puts giant tubes. `empties` is how many
    * tubes' worth of free room the board has. Every color needs a tube it can
    * finish in, so the builder keeps enough regular tubes for that, plus one
    * spare when the free room isn't all small tubes.
+   *
+   * Within those rules each deal varies: how many tubes are labeled, the mix
+   * of small tube sizes, where every tube stands, and whether giant tubes
+   * stand in the middle, at both ends, or together on one side.
    */
   function boardFor(modes, colors, units, empties, rng) {
     const m = normalizeModes(modes);
@@ -616,7 +620,7 @@
       labels.push(label == null ? -1 : label);
     };
     for (let i = 0; i < colors - 2 * g; i++) add(units, units);
-    const L = m.labels ? labelCount(colors) : 0;
+    const L = m.labels ? 1 + rng.int(labelCount(colors)) : 0;
     if (L) {
       const chosen = shuffle(Array.from({ length: colors }, (_, i) => i), rng).slice(0, L);
       chosen.sort((a, b) => a - b).forEach((c) => add(units, 0, c));
@@ -630,18 +634,43 @@
       // Keep only the regular free tubes some color must finish in; the rest
       // of the room comes as small tubes.
       const keep = Math.max(0, g - L);
-      const mini = units >= 6 ? 3 : 2;
       const room = Math.max(1, free - keep) * units;
       for (let i = 0; i < keep; i++) add(units, 0);
-      for (let i = 0; i < Math.max(2, Math.ceil(room / mini)); i++) add(mini, 0);
+      // A mix of 2- and 3-layer tubes (2 only, when tubes are 3 tall).
+      let made = 0;
+      for (let n = 0; made < room || n < 2; n++) {
+        const mini = units > 3 && rng() < 0.5 ? 3 : 2;
+        add(mini, 0);
+        made += mini;
+      }
       free = 0;
     }
     for (let i = 0; i < free; i++) add(units, 0);
-    let featured = null;
-    if (g === 1) featured = { center: caps.length };
-    if (g === 2) featured = { ends: [caps.length, caps.length + 1] };
-    for (let i = 0; i < g; i++) add(units * 2, units * 2);
-    return { caps, units, labels, fills, featured };
+
+    // Shuffle where the regular-height and small tubes stand.
+    const order = shuffle(caps.map((_, i) => i), rng);
+    const pick = (list) => order.map((i) => list[i]);
+    const board = { caps: pick(caps), units, labels: pick(labels), fills: pick(fills) };
+
+    // Giant tubes go last, placed by the layout.
+    const at = board.caps.length;
+    for (let i = 0; i < g; i++) {
+      board.caps.push(units * 2);
+      board.fills.push(units * 2);
+      board.labels.push(-1);
+    }
+    board.featured = null;
+    if (g) {
+      const spots = g === 1 ? ['center', 'left', 'right'] : ['ends', 'left', 'right'];
+      const spot = spots[rng.int(spots.length)];
+      const giants = g === 1 ? [at] : [at, at + 1];
+      board.featured = { left: [], center: [], right: [] };
+      if (spot === 'ends') {
+        board.featured.left.push(giants[0]);
+        board.featured.right.push(giants[1]);
+      } else board.featured[spot].push(...giants);
+    }
+    return board;
   }
 
   // With a single empty tube most deals cannot be finished (and the ones
@@ -870,10 +899,10 @@
     ] },
     { name: 'Nebula Lab', levels: [
       [9, 6, 2, 0.4], [10, 5, 2, 0.6], [8, 4, 2, 0.7, 'm'], [11, 4, 2, 0.7], [8, 6, 2, 0.6],
-      [8, 5, 2, 0.6, 'g1 label'], [10, 5, 2, 0.8], [12, 4, 2, 0.5], [8, 4, 1, 0.6], [11, 5, 2, 0.7],
+      [8, 5, 2, 0.6, 'g1 label'], [10, 5, 2, 0.8], [12, 4, 2, 0.5], [10, 4, 2, 0.6], [11, 5, 2, 0.7],
     ] },
     { name: 'Galaxy Lab', levels: [
-      [12, 4, 2, 0.7], [9, 6, 2, 0.6], [8, 4, 1, 0.8], [9, 5, 2, 0.6, 'm'], [12, 5, 2, 0.6],
+      [12, 4, 2, 0.7], [9, 6, 2, 0.6], [11, 5, 2, 0.8], [9, 5, 2, 0.6, 'm'], [12, 5, 2, 0.6],
       [9, 4, 2, 0.6, 'mini m'], [11, 6, 2, 0.6], [12, 4, 2, 0.9], [10, 5, 2, 0.7, 'g2 mini'], [12, 5, 2, 0.9],
     ] },
   ];

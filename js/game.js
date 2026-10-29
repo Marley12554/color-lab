@@ -240,7 +240,16 @@
   function renderHome() {
     const n = saved.unlocked;
     const lab = Core.labOf(n);
-    $('playSub').textContent = 'Experiment ' + n + ' · ' + lab.name;
+    const run = saved.run;
+    // A run of the level Play would start is resumed by Play itself.
+    const runIsNext = run && run.mode === 'level' && run.level === n;
+    $('playSub').textContent = 'Experiment ' + n + ' · ' + lab.name + (runIsNext ? ' · resume' : '');
+    $('resumeBtn').hidden = !run || runIsNext;
+    $('playBtn').classList.toggle('primary', !run || runIsNext);
+    if (run && !runIsNext) {
+      const where = run.mode === 'level' ? 'Experiment ' + run.level : 'Your mix';
+      $('resumeSub').textContent = where + ' · ' + run.moves + (run.moves === 1 ? ' move' : ' moves');
+    }
     $('soundToggle').checked = saved.sound;
     $('shapesToggle').checked = saved.shapes;
   }
@@ -338,8 +347,10 @@
     $('modeMinis').checked = m.minis;
     $('modeLabels').checked = m.labels;
     const note = $('sizeNote');
-    note.hidden = !((plain && c.empties === 1) || (m.minis && m.labels) || clampedNow);
-    if (m.minis && m.labels) note.textContent = 'Mini Tubes and Labeled Tubes together fit up to 8 colors.';
+    // Explain a limit only when it is the thing stopping the + button.
+    const pairCap = m.minis && m.labels && c.colors >= max;
+    note.hidden = !((plain && c.empties === 1) || pairCap || clampedNow);
+    if (pairCap) note.textContent = 'With Mini Tubes and Labeled Tubes both on, ' + max + ' colors is the most.';
     else if (!plain && clampedNow) note.textContent = 'These modes need ' + min + ' to ' + max + ' colors.';
     else if (plain && c.empties === 1) {
       note.textContent = 'One empty tube means more dead ends. Up to ' + max + ' colors fit in tubes this size.';
@@ -470,6 +481,10 @@
   }
 
   async function startLevel(n) {
+    if (saved.run && saved.run.mode === 'level' && saved.run.level === n) {
+      resumeRun(saved.run);
+      return;
+    }
     game.mode = 'level';
     game.level = n;
     game.custom = null;
@@ -530,6 +545,7 @@
     else line = pickFrom(CHEERS);
     say(line);
     if (game.mode === 'level' && game.level === 1) autoHint();
+    saveRun();
   }
 
   function resetBoard() {
@@ -573,7 +589,7 @@
     el.type = 'button';
     el.className = 'tube';
     el.innerHTML =
-      '<span class="glass"><span class="liquid"></span></span><span class="lip"></span><span class="tag"></span><span class="stopper"></span>';
+      '<span class="glass"><span class="liquid"></span><span class="tag"><i></i></span></span><span class="lip"></span><span class="stopper"></span>';
     el.addEventListener('click', () => onTube(i));
     return el;
   }
@@ -591,8 +607,7 @@
   }
 
   // Lays the tubes out in rows, each tube standing on its row's rack.
-  // Featured tubes get a column of their own that spans every row: one in
-  // the middle (the big beaker) or one at each end (rocket boosters).
+  // Giant tubes get columns of their own that span every row.
   function layout() {
     const n = tubeEls.length;
     if (!n) return;
@@ -601,10 +616,15 @@
     const bh = board.clientHeight;
     if (!bw || !bh) return;
 
+    // Giant tubes: in the middle, at either end, or side by side on one
+    // side. Older saves used { center: i } or { ends: [i, j] }.
     const feat = (game.puzzle && game.puzzle.featured) || {};
-    const center = feat.center != null && feat.center < n ? feat.center : -1;
-    const ends = (feat.ends || []).filter((i) => i < n);
-    const special = new Set(center >= 0 ? ends.concat([center]) : ends);
+    const list = (v) => (v == null ? [] : [].concat(v)).filter((i) => i < n);
+    const leftF = list(feat.left).concat(feat.ends ? list(feat.ends[0]) : []);
+    const rightF = list(feat.right).concat(feat.ends ? list(feat.ends[1]) : []);
+    const centerF = list(feat.center);
+    const center = centerF.length ? centerF[0] : -1;
+    const special = new Set(leftF.concat(rightF, centerF));
     const grid = [];
     for (let i = 0; i < n; i++) if (!special.has(i)) grid.push(i);
     const tall = (i) => caps[i] * UNIT + NECK; // in tube widths
@@ -652,8 +672,8 @@
     rackEls.forEach((r) => r.remove());
     rackEls = [];
     const gridCols = best.cols - special.size;
-    const gridX0 = x0 + (ends.length ? step : 0);
-    const centerX = x0 + Math.ceil(gridCols / 2) * step;
+    const gridX0 = x0 + leftF.length * step;
+    const centerX = gridX0 + Math.ceil(gridCols / 2) * step;
     let foot = bottom - best.gridH * w;
     best.rowsOf.forEach((row, r) => {
       foot += best.rowH[r] * w + (r ? GAP_Y * w : 0);
@@ -678,10 +698,8 @@
       rackEls.push(rack);
     });
     if (center >= 0) place(center, centerX, bottom);
-    if (ends.length) {
-      place(ends[0], x0, bottom);
-      if (ends[1] != null) place(ends[1], x0 + (best.cols - 1) * step, bottom);
-    }
+    leftF.forEach((i, k) => place(i, x0 + k * step, bottom));
+    rightF.forEach((i, k) => place(i, x0 + (best.cols - rightF.length + k) * step, bottom));
   }
 
   function segHtml(seg, isTop) {
@@ -727,7 +745,7 @@
     el.classList.toggle('labeled', label >= 0);
     if (label >= 0) {
       el.style.setProperty('--label', colorOf(label));
-      el.querySelector('.tag').innerHTML = saved.shapes
+      el.querySelector('.tag i').innerHTML = saved.shapes
         ? '<svg viewBox="0 0 24 24" aria-hidden="true">' + SHAPES[game.palette[label]] + '</svg>'
         : '';
     }
@@ -828,6 +846,9 @@
     game.history.push({ tubes: Core.cloneTubes(game.tubes) });
     const k = Core.pour(game.tubes, game.board, f, t);
     game.moves++;
+    // Saved before the animation, so leaving mid-pour keeps the pour.
+    normalizeHidden();
+    saveRun();
     game.selected = -1;
     updateHud();
     Sound.pour(k, game.tubes[t].length / game.board.caps[t]);
@@ -850,6 +871,7 @@
     }
     updateHud();
     afterMove();
+    saveRun();
   }
 
   function animatePour(f, t, k, color, dstBefore) {
@@ -1039,6 +1061,7 @@
     if (!wasStuck) say('Undone!');
     checkStuck(wasStuck);
     if (game.mode === 'level' && game.level === 1) autoHint();
+    saveRun();
   }
 
   function restart() {
@@ -1048,6 +1071,7 @@
     Sound.whoosh();
     say('Fresh start!');
     if (game.mode === 'level' && game.level === 1) autoHint();
+    saveRun();
   }
 
   function clearHint() {
@@ -1098,6 +1122,7 @@
     if (r.status === 'solved' && r.moves.length) {
       game.helps.hints--;
       game.helped = true;
+      saveRun();
       showHint(r.moves[0]);
       Sound.hint();
       say('Tap the tube with the arrow!');
@@ -1149,6 +1174,7 @@
     say(hadHint ? 'Here is an extra empty tube! I updated your hint.' : 'Here is an extra empty tube!');
     updateHud();
     checkStuck(wasStuck);
+    saveRun();
     if (hadHint) {
       const token = game.checkToken;
       job('solve', { tubes: Core.encode(game.tubes), cap: game.board, maxNodes: 80000 })
@@ -1189,6 +1215,7 @@
 
   function win() {
     game.done = true;
+    clearRun();
     clearHint();
     clearStuck();
     const moves = game.moves;
@@ -1322,6 +1349,7 @@
 
     document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => show(b.dataset.go)));
     $('playBtn').addEventListener('click', () => startLevel(saved.unlocked));
+    $('resumeBtn').addEventListener('click', () => saved.run && resumeRun(saved.run));
 
     // Every button and switch outside the board makes a sound: Play and
     // Mix it get a jingle, the rest a tap. Tubes and the lab tools have
@@ -1342,7 +1370,7 @@
     document.addEventListener('click', (e) => {
       const el = e.target.closest('button, input[type="checkbox"], input[type="radio"]');
       if (!el || el.disabled || el.closest('.tube, .tool, .step-btn')) return;
-      if (el.id === 'playBtn' || el.id === 'mixBtn' || el.id === 'nextBtn') Sound.jingle();
+      if (['playBtn', 'resumeBtn', 'mixBtn', 'nextBtn'].includes(el.id)) Sound.jingle();
       else Sound.tap();
     });
     $('levelsBtn').addEventListener('click', () => {
@@ -1465,26 +1493,75 @@
     else window.addEventListener('resize', relayout);
   }
 
+  // ---------- Pause and resume ----------
+
+  // Everything needed to pick a run up again exactly where it was.
+  function runSnapshot() {
+    return {
+      mode: game.mode,
+      level: game.level,
+      custom: game.custom,
+      puzzle: game.puzzle,
+      tubes: game.tubes,
+      hidden: game.hidden,
+      history: game.history,
+      helps: game.helps,
+      helped: game.helped,
+      board: game.board,
+      moves: game.moves,
+      undone: game.undone,
+    };
+  }
+
+  /*
+   * The current run is saved after every change, so leaving for the home
+   * screen, the level map, or another tab (or closing the page) loses
+   * nothing. Winning clears it; starting a different level or a new mix
+   * replaces it.
+   */
+  function saveRun() {
+    if (!game.puzzle || game.done) return;
+    saved.run = runSnapshot();
+    save();
+  }
+
+  function clearRun() {
+    if (!saved.run) return;
+    delete saved.run;
+    save();
+  }
+
+  function resumeRun(g) {
+    game.loadToken++;
+    Object.assign(game, { mode: g.mode, level: g.level, custom: g.custom });
+    setLab(g.mode === 'level' ? Core.labOf(g.level).index : 5);
+    show('play');
+    $('labName').textContent = g.mode === 'level' ? Core.labOf(g.level).name : 'Your mix';
+    $('levelTitle').textContent = g.mode === 'level' ? 'Experiment\u00a0' + g.level : 'Lab code ' + customCode(g.custom);
+    setPuzzle(g.puzzle);
+    Object.assign(game, {
+      tubes: g.tubes,
+      hidden: g.hidden,
+      history: g.history,
+      helps: Object.assign({}, g.helps),
+      helped: g.helped,
+      board: g.board || game.board,
+      moves: g.moves || g.history.length,
+      undone: g.undone || 0,
+    });
+    normalizeHidden();
+    buildBoard();
+    updateHud();
+    say(g.history.length ? 'Welcome back! Pick up where you left off.' : 'Welcome back!');
+    if (g.history.length) checkStuck(false);
+    if (game.mode === 'level' && game.level === 1) autoHint();
+    saveRun();
+  }
+
   // Lets an open copy of the page pick up where it was after an update.
   function snapshot() {
     if (screen !== 'play' || !game.puzzle || game.done) return { screen };
-    return {
-      screen,
-      game: {
-        mode: game.mode,
-        level: game.level,
-        custom: game.custom,
-        puzzle: game.puzzle,
-        tubes: game.tubes,
-        hidden: game.hidden,
-        history: game.history,
-        helps: game.helps,
-        helped: game.helped,
-        board: game.board,
-        moves: game.moves,
-        undone: game.undone,
-      },
-    };
+    return { screen, game: runSnapshot() };
   }
 
   function start(data) {
@@ -1495,24 +1572,7 @@
     getLevel(saved.unlocked).catch(() => {});
     const g = data && data.game;
     if (g && g.puzzle) {
-      Object.assign(game, { mode: g.mode, level: g.level, custom: g.custom });
-      setLab(g.mode === 'level' ? Core.labOf(g.level).index : 5);
-      show('play');
-      $('labName').textContent = g.mode === 'level' ? Core.labOf(g.level).name : 'Your mix';
-      $('levelTitle').textContent = g.mode === 'level' ? 'Experiment ' + g.level : 'Lab code ' + customCode(g.custom);
-      setPuzzle(g.puzzle);
-      Object.assign(game, {
-        tubes: g.tubes,
-        hidden: g.hidden,
-        history: g.history,
-        helps: Object.assign({}, g.helps),
-        helped: g.helped,
-        board: g.board || game.board,
-        moves: g.moves || g.history.length,
-        undone: g.undone || 0,
-      });
-      buildBoard();
-      updateHud();
+      resumeRun(g);
     } else if (data && data.screen && data.screen !== 'play') {
       show(data.screen);
     } else {

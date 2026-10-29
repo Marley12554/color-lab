@@ -1097,28 +1097,37 @@ input:focus-visible,
   text-shadow: 0 1px 2px rgba(30, 42, 94, 0.35);
 }
 
-/* A labeled tube wears a colored sticker on the side of its glass (with
-   the color's shape when color shapes are on), like a label on a bottle,
-   and a faint tint of its color. It sits well below the rim so it never
-   looks like the cap a finished tube gets. */
+/* A labeled tube wears a white paper label wrapped around its glass, with
+   a dot of its color (holding the color's shape when color shapes are on),
+   and a faint tint of that color. The label sits inside the glass, so it
+   curves with the tube, is clipped by its edges, and catches the shine. */
 .tag {
   display: none;
   position: absolute;
-  z-index: 3;
-  top: 30%;
-  left: 4%;
-  right: 4%;
-  height: calc(var(--w) * 0.5);
+  z-index: 1;
+  top: calc(var(--w) * 0.5);
+  left: 0;
+  right: 0;
+  height: calc(var(--w) * 0.62);
   place-items: center;
-  border-radius: 5px;
+  background: linear-gradient(90deg, #d5dbe8, #fbfcff 22%, #ffffff 45%, #f1f4fa 75%, #c9d0e0);
+  border-top: 2px solid rgba(30, 42, 94, 0.12);
+  border-bottom: 2px solid rgba(30, 42, 94, 0.12);
+}
+
+.tag i {
+  width: calc(var(--w) * 0.42);
+  height: calc(var(--w) * 0.42);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
   background: var(--label);
-  border: 3px solid #fff;
-  box-shadow: 0 2px 6px rgba(30, 42, 94, 0.3);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.18);
 }
 
 .tag svg {
-  height: 78%;
-  fill: rgba(255, 255, 255, 0.9);
+  width: 70%;
+  fill: rgba(255, 255, 255, 0.92);
 }
 
 .tube.labeled .tag {
