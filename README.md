@@ -29,7 +29,7 @@ To put it online with GitHub Pages: make the repository public, open **Settings 
 - **Stars.** 3 stars for matching or beating the robot's move count, 2 stars within 40% of it, 1 star for finishing. Every pour counts, including ones you undo; Restart starts the count over.
 - **Dead-end warning.** After each pour the solver quietly tries every way forward. If none of them can be finished, the robot says so in plain words ("Dead end! This mix can't be finished. Undo 1 pour."), even when some pours are still possible, and adds "Or use the extra tube." when that would rescue it. The tubes turn gray and stop taking pours, the Undo button shows the number to undo, and the board stays gray until you're back at a mix that can be finished.
 - **Color shapes.** An option that marks every color with its own shape, for color-blind players.
-- Sounds are synthesized in the browser (no audio files). Progress is saved in the browser.
+- Sounds are synthesized in the browser (no audio files): taps on every button, a jingle when a level starts, soft bubbling on the title screen (after the first tap, since browsers block sound until then), and pour, seal, and win sounds. Progress is saved in the browser.
 
 ## How levels are made
 
@@ -37,8 +37,9 @@ To put it online with GitHub Pages: make the repository public, open **Settings 
 
 1. **Deal.** Shuffle `colors × height` layers into tubes from a seeded random number generator, plus the empty tubes. Deals where a tube starts finished or nearly finished are skipped.
 2. **Solve.** A best-first search over tube states (tubes are sorted before comparing, since their order doesn't matter) proves the deal can be finished, or proves it can't. With weight 1 it is exact A* and finds the shortest solution; the tests check it against brute force on 300 small puzzles.
-3. **Rate.** Two numbers: how often a pretend player who never plans ahead gets stuck (the "trap rate"), and how much backtracking the solver needed per move. The first separates small and medium puzzles; the second separates big ones, where almost every pretend player gets stuck.
-4. **Pick.** Collect several solvable deals, sort them by rating, and take the one at the requested spot (0 is the easiest of the batch, 1 the hardest).
+3. **Check it's fair.** Walking along the solver's route, count how many of the pours on offer at each step lead straight into a dead end. A puzzle is fair when that's at most 10% overall and never more than half at any one moment. Every difficulty, Genius included, only picks from fair puzzles, so hard means bigger and more planning, not guessing which pour is a trap. (With one empty tube from about six colors up, fair puzzles almost never come up, so the campaign avoids those sizes, and Mix your own warns that one empty tube means more dead ends.)
+4. **Rate.** Two numbers: how often a pretend player who never plans ahead gets stuck (the "trap rate"), and how much backtracking the solver needed per move. The first separates small and medium puzzles; the second separates big ones, where almost every pretend player gets stuck.
+5. **Pick.** Collect several solvable deals, sort them by rating, and take the one at the requested spot (0 is the easiest of the batch, 1 the hardest).
 
 Size does most of the difficulty work; the pick chooses easy or tricky deals within a size. Every budget counts search steps rather than time, so slow and fast devices produce identical puzzles.
 
@@ -72,6 +73,12 @@ node tools/campaign.js 1 90
 ```
 
 Prints every campaign level's size, rating, and generation time. Change the `LABS` table in `js/core.js` to retune the curve.
+
+```bash
+node tools/deadends.js 1 70
+```
+
+Shows, for each campaign level, the share of pours along a good route that lead straight into a dead end.
 
 ```bash
 node tools/shapes.js

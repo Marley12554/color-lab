@@ -428,6 +428,62 @@
   }
 
   /*
+   * How much of a puzzle is trial and error: walking along a good route
+   * (`solution`), the share of the pours on offer at each position that lead
+   * straight into a dead end. 0 means every pour is safe; 0.5 means half of
+   * them end the game. Positions are sampled evenly along the route, and a
+   * check that runs out of budget counts as safe, so this never overstates.
+   *
+   * With `opts.limit` ({ share, worst }) it gives up as soon as the puzzle
+   * clearly can't meet the limit: one moment over `worst`, or, three or more
+   * positions in, a running share over twice `share`. It then reports what
+   * it saw so far with `early: true`.
+   */
+  function deadEndShare(tubes, board, solution, opts) {
+    opts = opts || {};
+    const samples = opts.samples || 8;
+    // Real dead ends are usually small (a dozen or so reachable positions),
+    // so a modest search per pour catches nearly all of them.
+    const maxNodes = opts.maxNodes || 1000;
+    let state = typeof tubes[0] === 'string' ? tubes : encode(tubes);
+    const sb = solverBoard(board, state.length);
+    const route = [state];
+    for (const [f, t] of solution) {
+      const k = Math.min(sRun(state[f]), sb.caps[t] - state[t].length);
+      state = sApply(state, f, t, k);
+      route.push(state);
+    }
+    const stops = Math.max(1, route.length - 1);
+    const picks = new Set();
+    for (let i = 0; i < Math.min(samples, stops); i++) picks.add(Math.floor((i * stops) / Math.min(samples, stops)));
+    const buf = [];
+    let fatal = 0;
+    let total = 0;
+    let worst = 0;
+    let seen = 0;
+    const limit = opts.limit;
+    for (const i of picks) {
+      const here = route[i];
+      sMoves(here, sb, buf);
+      let bad = 0;
+      let options = 0;
+      for (let m = 0; m < buf.length; m += 3) {
+        const next = sApply(here, buf[m], buf[m + 1], buf[m + 2]);
+        options++;
+        if (!sSolved(next, sb.units) && solve(next, board, { maxNodes }).status === 'unsolvable') bad++;
+      }
+      fatal += bad;
+      total += options;
+      seen++;
+      if (options) worst = Math.max(worst, bad / options);
+      if (limit && (worst > limit.worst || (seen >= 3 && fatal / total > 2 * limit.share))) {
+        return { share: fatal / total, worst, early: true };
+      }
+    }
+    return { share: total ? fatal / total : 0, worst };
+  }
+
+  /*
    * What gets a stuck mix going again: how many pours to undo (counting back
    * through `history`, oldest first, the way the game keeps it) and whether
    * one more empty tube would rescue it as it stands. Undos is null when
@@ -607,6 +663,15 @@
   }
 
   /*
+   * Difficulty should come from planning, not from guessing which pour is a
+   * trap. A puzzle is fair when, along a good route, at most 10% of the pours
+   * on offer lead straight into a dead end and no single moment has more
+   * than half of them fatal. Every difficulty, Genius included, picks only
+   * among fair puzzles.
+   */
+  const FAIR = { share: 0.1, worst: 0.5 };
+
+  /*
    * spec: { colors, cap (layers per color), empties, shape, pick (0..1) or
    * difficulty ('easy' ... 'genius'), seed, candidates, playouts, maxDeals,
    * maxNodes }. Special shapes set their own room, so `empties` is only used
@@ -615,8 +680,10 @@
    * The result carries `caps` (each tube's height) and `units` (layers per
    * color); `cap` stays as the layers per color too.
    *
-   * Deals from the seed until it has `candidates` solvable deals, ranks them
-   * by rate(), and returns the one at `pick`. Everything is seeded and every
+   * Deals from the seed until it has `candidates` fair deals, ranks them by
+   * rate(), and returns the one at `pick`. Some sizes (one empty tube, from
+   * about six colors) almost never deal a fair puzzle; then the deals with
+   * the fewest dead ends are ranked instead. Everything is seeded and every
    * budget counts steps rather than time, so the same spec always gives the
    * same puzzle on every device.
    */
@@ -626,15 +693,18 @@
     const empties = spec.empties;
     const shape = spec.shape || 'classic';
     const pick = spec.pick != null ? spec.pick : DIFFICULTY_PICKS[spec.difficulty || 'medium'];
-    const want = spec.candidates || (empties <= 1 ? 6 : 10);
+    const want = spec.candidates || 6;
     const playouts = spec.playouts || 60;
     const maxDeals = spec.maxDeals || 5000;
+    const maxSolvable = spec.maxSolvable || want * 6;
     const maxNodes = spec.maxNodes || 60000;
     const seed = spec.seed == null ? 1 : spec.seed;
 
     const found = [];
+    const unfair = [];
     let deals = 0;
-    for (let k = 0; k < maxDeals && found.length < want; k++) {
+    let solvable = 0;
+    for (let k = 0; k < maxDeals && found.length < want && solvable < maxSolvable; k++) {
       const rng = makeRng(hashString(seed + ':' + k));
       const dealt = deal(colors, cap, empties, rng, shape);
       const board = dealt.board || boardFor('classic', colors, cap, empties, rng);
@@ -644,19 +714,28 @@
       const start = encode(tubes);
       const result = solve(start, board, { maxNodes, weight: 2 });
       if (result.status !== 'solved') continue;
-      const trap = trapRate(start, board, { playouts, seed: hashString('trap:' + seed + ':' + k) });
-      found.push({
-        tubes,
-        board,
-        par: result.moves.length,
-        solution: result.moves,
+      solvable++;
+      const dead = deadEndShare(start, board, result.moves, { limit: FAIR });
+      const entry = { tubes, board, start, result, dead, attempt: k };
+      if (dead.share <= FAIR.share && dead.worst <= FAIR.worst) found.push(entry);
+      else unfair.push(entry);
+    }
+    if (!found.length) {
+      if (!unfair.length) return null;
+      unfair.sort((a, b) => a.dead.share - b.dead.share || a.dead.worst - b.dead.worst || a.attempt - b.attempt);
+      found.push(...unfair.slice(0, Math.min(3, want)));
+    }
+    // The trap rate is only worth working out for the deals still in the running.
+    for (const e of found) {
+      const trap = trapRate(e.start, e.board, { playouts, seed: hashString('trap:' + seed + ':' + e.attempt) });
+      Object.assign(e, {
+        par: e.result.moves.length,
+        solution: e.result.moves,
         trap,
-        nodes: result.nodes,
-        rating: rate(trap, result.nodes, result.moves.length),
-        attempt: k,
+        nodes: e.result.nodes,
+        rating: rate(trap, e.result.nodes, e.result.moves.length),
       });
     }
-    if (!found.length) return null;
     found.sort((a, b) => a.rating - b.rating || a.attempt - b.attempt);
     const chosen = found[Math.round(Math.min(1, Math.max(0, pick)) * (found.length - 1))];
 
@@ -680,6 +759,8 @@
       solution: chosen.solution,
       trap: chosen.trap,
       rating: chosen.rating,
+      deadEnds: chosen.dead.share,
+      fair: chosen.dead.share <= FAIR.share && chosen.dead.worst <= FAIR.worst,
       candidates: found.length,
       deals,
       seed,
@@ -716,23 +797,23 @@
       [9, 4, 2, 0.6], [5, 4, 1, 0.7], [8, 4, 0, 0.5, 'boosters'], [9, 4, 2, 0.8], [10, 4, 2, 0.5],
     ] },
     { name: 'Orbit Lab', levels: [
-      [6, 4, 1, 0.4], [9, 5, 2, 0.5], [10, 4, 2, 0.6], [7, 4, 2, 0.6, 'm'], [6, 6, 2, 0.5],
+      [8, 5, 2, 0.4], [9, 5, 2, 0.5], [10, 4, 2, 0.6], [7, 4, 2, 0.6, 'm'], [6, 6, 2, 0.5],
       [8, 4, 0, 0.5, 'stairs'], [6, 4, 1, 0.7], [9, 5, 2, 0.8], [7, 6, 2, 0.6], [11, 4, 2, 0.6],
     ] },
     { name: 'Nebula Lab', levels: [
-      [7, 4, 1, 0.4], [10, 5, 2, 0.6], [8, 4, 2, 0.7, 'm'], [11, 4, 2, 0.7], [8, 6, 2, 0.6],
+      [9, 6, 2, 0.4], [10, 5, 2, 0.6], [8, 4, 2, 0.7, 'm'], [11, 4, 2, 0.7], [8, 6, 2, 0.6],
       [8, 5, 0, 0.6, 'beaker'], [10, 5, 2, 0.8], [12, 4, 2, 0.5], [8, 4, 1, 0.6], [11, 5, 2, 0.7],
     ] },
     { name: 'Galaxy Lab', levels: [
       [12, 4, 2, 0.7], [9, 6, 2, 0.6], [8, 4, 1, 0.8], [9, 5, 2, 0.6, 'm'], [12, 5, 2, 0.6],
-      [9, 4, 0, 0.6, 'minis'], [9, 4, 1, 0.6], [12, 4, 2, 0.9], [10, 5, 0, 0.7, 'boosters'], [12, 5, 2, 0.9],
+      [9, 4, 0, 0.6, 'minis'], [11, 6, 2, 0.6], [12, 4, 2, 0.9], [10, 5, 0, 0.7, 'boosters'], [12, 5, 2, 0.9],
     ] },
   ];
 
   // After the last lab the levels keep coming, drawn from these sizes.
   const ENDLESS_SIZES = [
     [12, 4, 2], [12, 5, 2], [11, 6, 2], [10, 6, 2], [11, 5, 2],
-    [9, 4, 1], [8, 4, 1], [7, 5, 1], [6, 6, 1], [10, 5, 2, 'm'], [8, 4, 2, 'm'],
+    [6, 4, 1], [11, 6, 2], [10, 5, 2, 'm'], [8, 4, 2, 'm'],
     [9, 4, 0, 'beaker'], [7, 6, 0, 'beaker'], [11, 5, 0, 'boosters'], [12, 4, 0, 'stairs'],
     [10, 6, 0, 'stairs'], [8, 5, 0, 'minis'],
   ];
@@ -820,6 +901,7 @@
     trapRate,
     rescue,
     checkMix,
+    deadEndShare,
     deal,
     boardFor,
     SHAPE_NAMES,

@@ -8,7 +8,10 @@
 
   let ctx = null;
   let master = null;
+  let bubbleBus = null;
   let enabled = true;
+  let bubbling = false;
+  let bubbleTimer = 0;
 
   function audio() {
     if (!enabled) return null;
@@ -23,6 +26,9 @@
       master = ctx.createGain();
       master.gain.value = 0.5;
       master.connect(ctx.destination);
+      bubbleBus = ctx.createGain();
+      bubbleBus.gain.value = 0.35;
+      bubbleBus.connect(master);
     }
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
     return ctx;
@@ -44,15 +50,48 @@
     gain.gain.exponentialRampToValueAtTime(peak, t0 + Math.min(0.02, dur / 3));
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     osc.connect(gain);
-    gain.connect(master);
+    gain.connect(opts.bus || master);
     osc.start(t0);
     osc.stop(t0 + dur + 0.02);
+  }
+
+  /*
+   * Background bubbling for the title screen: soft random blips, sometimes
+   * in little clusters. It only sounds once the page may play audio (after
+   * the first tap) and goes quiet while the tab is hidden.
+   */
+  function bubbleTick() {
+    bubbleTimer = 0;
+    if (!bubbling) return;
+    if (enabled && ctx && ctx.state === 'running' && !document.hidden) {
+      const count = Math.random() < 0.25 ? 2 + Math.floor(Math.random() * 2) : 1;
+      for (let i = 0; i < count; i++) {
+        const f = 170 + Math.random() * 260;
+        const dur = 0.07 + Math.random() * 0.07;
+        tone(f, i * (0.06 + Math.random() * 0.05), dur, { to: f * (1.6 + Math.random() * 0.5), gain: 0.16, bus: bubbleBus });
+      }
+    }
+    bubbleTimer = setTimeout(bubbleTick, 220 + Math.random() * 650);
   }
 
   const Sound = {
     setEnabled(on) {
       enabled = !!on;
       if (!enabled && ctx && ctx.state === 'running') ctx.suspend().catch(() => {});
+    },
+    // Starts or stops the title screen's background bubbling.
+    bubbles(on) {
+      bubbling = !!on;
+      if (bubbling && !bubbleTimer) bubbleTimer = setTimeout(bubbleTick, 300);
+      if (!bubbling && bubbleTimer) {
+        clearTimeout(bubbleTimer);
+        bubbleTimer = 0;
+      }
+    },
+    // A short cheerful run for starting a level.
+    jingle() {
+      [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.08, 0.2, { type: 'triangle', gain: 0.16 }));
+      tone(1568, 0.34, 0.25, { gain: 0.07 });
     },
     tap() {
       tone(720, 0, 0.06, { type: 'triangle', gain: 0.15 });

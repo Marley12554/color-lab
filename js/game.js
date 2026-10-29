@@ -195,6 +195,7 @@
       $(id).hidden = id !== name;
     });
     $('win').hidden = true;
+    Sound.bubbles(name === 'home');
     if (name === 'home') renderHome();
     if (name === 'levels') renderLevels();
     if (name === 'custom') renderCustom();
@@ -307,7 +308,9 @@
     const note = $('sizeNote');
     note.hidden = !(!classic || c.empties === 1 || clampedNow);
     if (!classic) note.textContent = SHAPE_INTROS[c.shape] + ' This board brings its own empty space.';
-    else if (c.empties === 1) note.textContent = 'With one empty tube, up to ' + max + ' colors fit in tubes this size.';
+    else if (c.empties === 1) {
+      note.textContent = 'One empty tube means more dead ends. Up to ' + max + ' colors fit in tubes this size.';
+    }
     else note.textContent = 'Up to ' + max + ' colors.';
     document.querySelectorAll('input[name="difficulty"]').forEach((r) => {
       r.checked = r.value === c.difficulty;
@@ -1240,6 +1243,16 @@
 
     document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => show(b.dataset.go)));
     $('playBtn').addEventListener('click', () => startLevel(saved.unlocked));
+
+    // Every button and switch outside the board makes a sound: Play and
+    // Mix it get a jingle, the rest a tap. Tubes and the lab tools have
+    // sounds of their own.
+    document.addEventListener('click', (e) => {
+      const el = e.target.closest('button, input[type="checkbox"], input[type="radio"]');
+      if (!el || el.disabled || el.closest('.tube, .tool, .step-btn')) return;
+      if (el.id === 'playBtn' || el.id === 'mixBtn' || el.id === 'nextBtn') Sound.jingle();
+      else Sound.tap();
+    });
     $('levelsBtn').addEventListener('click', () => {
       show('levels');
       scrollToCurrent();

@@ -226,6 +226,17 @@ test('the first 80 campaign levels generate and can be finished', () => {
     const board = { caps: p.caps, units: p.units };
     assert.ok(C.isSolved(replay(p.tubes, board, p.solution), board), `level ${level}`);
     assert.equal(p.par, p.solution.length);
+    if (!spec.tutorial) assert.ok(p.fair, `level ${level} has too many dead ends (${(p.deadEnds * 100).toFixed(0)}%)`);
+  }
+});
+
+test('Genius picks the hardest fair puzzle, not a trap-filled one', () => {
+  for (const seed of ['g1', 'g2', 'g3']) {
+    const p = C.generate({ colors: 12, cap: 5, empties: 2, difficulty: 'genius', seed });
+    assert.ok(p.fair, `genius ${seed}: ${(p.deadEnds * 100).toFixed(0)}% dead ends`);
+    const board = { caps: p.caps, units: p.units };
+    const again = C.deadEndShare(p.tubes, board, p.solution);
+    assert.ok(again.share <= 0.1 && again.worst <= 0.5);
   }
 });
 
