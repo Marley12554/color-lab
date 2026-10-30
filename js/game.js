@@ -189,7 +189,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=74282ab040');
+        worker = new Worker('js/worker.js?v=25f8b251fa');
       }
     } catch (e) {
       worker = null;
@@ -480,7 +480,7 @@
 
   const MODE_ICONS = {
     giant: '<rect x="2" y="1" width="5" height="14" rx="2.5"/><rect x="9" y="7" width="5" height="8" rx="2.5"/>',
-    labels: '<rect x="5" y="1" width="6" height="14" rx="3"/><rect x="3.5" y="6" width="9" height="4" rx="1" fill="#fff" stroke="currentColor" stroke-width="1"/>',
+    labels: '<path d="M1.5 2.5a1 1 0 0 1 1-1h6a1 1 0 0 1 .7.3l5 5a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4 0l-5-5a1 1 0 0 1-.3-.7z"/><circle cx="5" cy="5" r="1.6" fill="#fff"/>',
     mystery: '<rect x="1" y="1" width="14" height="14" rx="4"/><path d="M6 6.2a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.3" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fff"/>',
     surprise: '<rect x="1" y="1" width="14" height="14" rx="4"/><circle cx="5" cy="5" r="1.5" fill="#fff"/><circle cx="8" cy="8" r="1.5" fill="#fff"/><circle cx="11" cy="11" r="1.5" fill="#fff"/>',
   };
