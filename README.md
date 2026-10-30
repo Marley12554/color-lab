@@ -75,6 +75,12 @@ npm test
 Runs the unit tests (Node 18 or newer, no dependencies).
 
 ```bash
+node tools/stamp.js
+```
+
+Stamps a version on the page's script and style links after you change them, so browsers (Safari especially) fetch the new files instead of reusing cached ones. `npm test` fails if the stamp is out of date.
+
+```bash
 node tools/campaign.js 1 90
 ```
 
