@@ -1202,8 +1202,9 @@
     const TIP = 300;
     const RUN = Math.min(760, 240 + 85 * k);
     const BACK = 280;
+    // The surface sits on everything in the target, not just its top color.
     const surfaceAt = (units) => glassTop + dstH - units * unit;
-    const fallTime = Math.max(80, Math.min(170, 50 + (22 * (surfaceAt(m0) - stream[1])) / w));
+    const fallTime = Math.max(80, Math.min(170, 50 + (22 * (surfaceAt(dstBefore) - stream[1])) / w));
     const total = TIP + RUN + Math.max(BACK, fallTime);
     const flow = (ms) => easeInOut(clamp01(ms / RUN));
     const fall = (ms) => clamp01(ms / fallTime) ** 2;
@@ -1248,9 +1249,9 @@
 
         // The liquid reaches the target one fall later than it leaves.
         const run = ms - TIP;
-        const landed = m0 + k * flow(run - fallTime);
-        dstTop.style.height = landed * unit + 'px';
-        const surface = surfaceAt(landed);
+        const landed = k * flow(run - fallTime);
+        dstTop.style.height = (m0 + landed) * unit + 'px';
+        const surface = surfaceAt(dstBefore + landed);
         if (run <= 0) showStream(0, 0, 0, false);
         else {
           const head = Math.min(surface, stream[1] + (surface - stream[1]) * fall(run));
