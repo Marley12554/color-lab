@@ -453,6 +453,14 @@
    * them end the game. Positions are sampled evenly along the route, and a
    * check that runs out of budget counts as safe, so this never overstates.
    *
+   * It also counts real decisions: positions where at least two pours are
+   * safe, they differ by two or more moves in how long the rest of the
+   * puzzle takes, and the obvious pour (finish a tube, else stack a whole
+   * section onto its color) is not the best one, or there is no obvious
+   * pour at all. Those are the moments a player has to think rather than
+   * play on autopilot. The search that checks each pour for a dead end
+   * also says how long the rest takes, so this costs almost nothing extra.
+   *
    * With `opts.limit` ({ share, worst }) it gives up as soon as the puzzle
    * clearly can't meet the limit: one moment over `worst`, or, three or more
    * positions in, a running share over twice `share`. It then reports what
@@ -480,26 +488,51 @@
     let total = 0;
     let worst = 0;
     let seen = 0;
+    let decisions = 0;
     const limit = opts.limit;
     for (const i of picks) {
       const here = route[i];
       sMoves(here, sb, buf);
       let bad = 0;
       let options = 0;
+      let best = Infinity;
+      let spreadMax = -Infinity;
+      let obviousRank = -1;
+      let obviousBest = Infinity;
       for (let m = 0; m < buf.length; m += 3) {
-        const next = sApply(here, buf[m], buf[m + 1], buf[m + 2]);
+        const f = buf[m];
+        const t = buf[m + 1];
+        const k = buf[m + 2];
+        const next = sApply(here, f, t, k);
         options++;
-        if (!sSolved(next, sb) && solve(next, board, { maxNodes }).status === 'unsolvable') bad++;
+        let cost = 1;
+        if (!sSolved(next, sb)) {
+          const r = solve(next, board, { maxNodes });
+          if (r.status === 'unsolvable') {
+            bad++;
+            continue;
+          }
+          cost = r.status === 'solved' ? 1 + r.moves.length : NaN;
+        }
+        if (Number.isNaN(cost)) continue;
+        best = Math.min(best, cost);
+        spreadMax = Math.max(spreadMax, cost);
+        const rank = sSealed(next[t], sb.units) ? 3 : here[t].length && k === sRun(here[f]) ? 2 : here[t].length ? 1 : 0;
+        if (rank > obviousRank) {
+          obviousRank = rank;
+          obviousBest = cost;
+        } else if (rank === obviousRank) obviousBest = Math.min(obviousBest, cost);
       }
+      if (spreadMax - best >= 2 && (obviousRank < 2 || obviousBest >= best + 2)) decisions++;
       fatal += bad;
       total += options;
       seen++;
       if (options) worst = Math.max(worst, bad / options);
       if (limit && (worst > limit.worst || (seen >= 3 && fatal / total > 2 * limit.share))) {
-        return { share: fatal / total, worst, early: true };
+        return { share: fatal / total, worst, decisions, early: true };
       }
     }
-    return { share: total ? fatal / total : 0, worst };
+    return { share: total ? fatal / total : 0, worst, decisions, checked: seen };
   }
 
   /*
@@ -620,26 +653,33 @@
       labels.push(label == null ? -1 : label);
     };
     for (let i = 0; i < colors - 2 * g; i++) add(units, units);
-    const L = m.labels ? 1 + rng.int(labelCount(colors)) : 0;
+    // `empties` is the board's whole budget of free room. Labeled tubes are
+    // room too, so they count against it.
+    const L = m.labels ? 1 + rng.int(Math.min(labelCount(colors), Math.max(1, empties))) : 0;
     if (L) {
       const chosen = shuffle(Array.from({ length: colors }, (_, i) => i), rng).slice(0, L);
       chosen.sort((a, b) => a - b).forEach((c) => add(units, 0, c));
     }
-    // Free regular tubes. Giant tubes take the place of two full tubes but
-    // only finish one color, so each one beyond the first needs a free tube
-    // to make up for it; labeled tubes are themselves free room, so they
-    // replace one regular free tube.
-    let free = Math.max(1, empties + Math.max(0, g - 1) - (L ? 1 : 0), g - L + 1);
+    // Free regular tubes: what's left of the budget, but never fewer than the
+    // rules need. Each giant tube takes the place of two full tubes yet
+    // finishes only one color, so the board needs a free tube for every
+    // giant beyond what labeled tubes make up for.
+    // Labeled tubes take one color only, so there is always at least one
+    // regular free tube (or the small tubes standing in for it). Giant tubes
+    // also need a spare finishing tube to work with, unless small tubes
+    // provide the working room; without it almost no deal can be finished.
+    const need = Math.max(0, g - L);
+    let free = Math.max(empties - L, need && !m.minis ? need + 1 : need, 1);
     if (m.minis) {
       // Keep only the regular free tubes some color must finish in; the rest
-      // of the room comes as small tubes.
-      const keep = Math.max(0, g - L);
-      const room = Math.max(1, free - keep) * units;
-      for (let i = 0; i < keep; i++) add(units, 0);
-      // A mix of 2- and 3-layer tubes (2 only, when tubes are 3 tall).
+      // of the budget comes as small tubes (always at least two of them).
+      const room = Math.max(0, free - need) * units;
+      for (let i = 0; i < need; i++) add(units, 0);
+      // A mix of 2- and 3-layer tubes (2 only, when tubes are 3 tall). Small
+      // tubes beyond the budget, there only so the mode shows, hold 2.
       let made = 0;
       for (let n = 0; made < room || n < 2; n++) {
-        const mini = units > 3 && rng() < 0.5 ? 3 : 2;
+        const mini = units > 3 && made < room && rng() < 0.5 ? 3 : 2;
         add(mini, 0);
         made += mini;
       }
@@ -750,6 +790,10 @@
    * does not plan ahead gets stuck. It tops out near 1 on big puzzles, so
    * the second term breaks those ties: how many states the solver had to
    * look at per move of its answer, which grows with backtracking.
+   *
+   * (deadEndShare also counts "real decisions". Ranking by them was tried
+   * and did not make puzzles measurably harder to play on autopilot, so
+   * they are reported but not used here yet.)
    */
   function rate(trap, nodes, par) {
     return trap + 0.25 * Math.log2(Math.max(1, nodes / Math.max(1, par)));
@@ -828,6 +872,7 @@
         solution: e.result.moves,
         trap,
         nodes: e.result.nodes,
+        decisions: e.dead.decisions || 0,
         rating: rate(trap, e.result.nodes, e.result.moves.length),
       });
     }
@@ -857,6 +902,7 @@
       trap: chosen.trap,
       rating: chosen.rating,
       deadEnds: chosen.dead.share,
+      decisions: chosen.decisions,
       fair: chosen.dead.share <= FAIR.share && chosen.dead.worst <= FAIR.worst,
       candidates: found.length,
       deals,
