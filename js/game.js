@@ -50,6 +50,8 @@
   const GAP_X = 0.5;
   const GAP_Y = 0.5;
   const MAX_W = 78;
+  const SECTION_GAP = 0.35; // extra room between groups and giant tubes
+  const GROUP_FROM = 10; // regular tubes before stacking is preferred
 
   const INTROS = {
     1: 'Tap a tube, then tap another tube to pour. Matching colors stack!',
@@ -189,7 +191,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=61ae11687e');
+        worker = new Worker('js/worker.js?v=50ef4af386');
       }
     } catch (e) {
       worker = null;
@@ -339,26 +341,29 @@
   function clampCustom() {
     const c = saved.custom;
     c.modes = Core.normalizeModes(c.modes);
-    c.cap = Math.min(6, Math.max(3, c.cap));
+    const maxCap = Core.maxCapFor(c.modes);
+    const capCut = c.cap > maxCap;
+    c.cap = Math.min(maxCap, Math.max(3, c.cap));
     const minEmpties = Core.minEmptiesFor(c.modes);
-    const emptiesRaised = c.empties < minEmpties;
-    c.empties = Math.min(3, Math.max(minEmpties, c.empties));
+    const maxEmpties = Core.maxEmptiesFor(c.modes);
+    const emptiesMoved = c.empties < minEmpties || c.empties > maxEmpties;
+    c.empties = Math.min(maxEmpties, Math.max(minEmpties, c.empties));
     const max = Core.maxColorsFor(c.cap, c.empties, c.modes);
     const min = Core.minColorsFor(c.modes);
-    const clamped = c.colors > max || c.colors < min || emptiesRaised;
+    const clamped = c.colors > max || c.colors < min || emptiesMoved || capCut;
     c.colors = Math.min(max, Math.max(min, c.colors));
-    return { max, min, minEmpties, clamped };
+    return { max, min, minEmpties, maxEmpties, maxCap, clamped };
   }
 
   function renderCustom(clampedNow) {
     const c = saved.custom;
-    const { max, min, minEmpties } = clampCustom();
+    const { max, min, minEmpties, maxEmpties, maxCap } = clampCustom();
     const m = c.modes;
     const plain = !Core.hasBoardModes(m);
     $('colorsOut').textContent = c.colors;
     $('capOut').textContent = c.cap;
     $('emptiesOut').textContent = c.empties;
-    const limits = { colors: [min, max], cap: [3, 6], empties: [minEmpties, 3] };
+    const limits = { colors: [min, max], cap: [3, maxCap], empties: [minEmpties, maxEmpties] };
     document.querySelectorAll('.stepper').forEach((row) => {
       const key = row.dataset.key;
       row.querySelector('[data-step="-1"]').disabled = c[key] <= limits[key][0];
@@ -366,7 +371,7 @@
     });
     $('modeGiant').checked = m.giant > 0;
     document.querySelectorAll('input[name="giants"]').forEach((r) => {
-      r.disabled = !m.giant;
+      r.disabled = !m.giant || (m.minis && r.value === '2');
       r.checked = Number(r.value) === (m.giant || 1);
       r.closest('label').classList.toggle('on', r.checked);
     });
@@ -375,9 +380,12 @@
     const note = $('sizeNote');
     // Explain a limit only when it is the thing stopping a button.
     const pairCap = m.minis && m.labels && c.colors >= max;
+    const giantMinis = m.giant > 0 && m.minis;
     const giantFloor = m.giant > 0 && c.empties === minEmpties;
-    note.hidden = !((plain && c.empties === 1) || pairCap || giantFloor || clampedNow);
-    if (giantFloor) {
+    note.hidden = !((plain && c.empties === 1) || pairCap || giantMinis || giantFloor || clampedNow);
+    if (giantMinis) {
+      note.textContent = 'Giant Tubes with Mini Tubes: 1 giant tube, up to 8 colors, tube size up to 5, and 2 empty tubes.';
+    } else if (giantFloor) {
       note.textContent =
         (m.giant === 2 ? '2 Giant Tubes need' : 'A Giant Tube needs') + ' at least ' + minEmpties +
         ' empty tubes, to dig the mixed colors out of ' + (m.giant === 2 ? 'them.' : 'it.');
@@ -549,7 +557,9 @@
       seed: +match[2],
     };
     if (spec.trick > 2 || !/[01]/.test(d[5]) || +d[6] > 2 || extra > 3) return null;
-    if (spec.cap < 3 || spec.cap > 6 || spec.empties < Core.minEmptiesFor(spec.modes) || spec.empties > 3) return null;
+    if (spec.modes.giant !== +d[6]) return null;
+    if (spec.cap < 3 || spec.cap > Core.maxCapFor(spec.modes)) return null;
+    if (spec.empties < Core.minEmptiesFor(spec.modes) || spec.empties > Core.maxEmptiesFor(spec.modes)) return null;
     if (spec.colors < Core.minColorsFor(spec.modes) || spec.colors > Core.maxColorsFor(spec.cap, spec.empties, spec.modes)) return null;
     return spec;
   }
@@ -771,37 +781,66 @@
     const bh = board.clientHeight;
     if (!bw || !bh) return;
 
-    // Giant tubes: in the middle, at either end, or side by side on one
-    // side. Older saves used { center: i } or { ends: [i, j] }.
+    // Giant tubes stand in the middle or at both ends. Older saves could put
+    // them side by side on one side, or used { center: i } / { ends: [i, j] }.
     const feat = (game.puzzle && game.puzzle.featured) || {};
     const list = (v) => (v == null ? [] : [].concat(v)).filter((i) => i < n);
     const leftF = list(feat.left).concat(feat.ends ? list(feat.ends[0]) : []);
     const rightF = list(feat.right).concat(feat.ends ? list(feat.ends[1]) : []);
     const centerF = list(feat.center);
-    const center = centerF.length ? centerF[0] : -1;
     const special = new Set(leftF.concat(rightF, centerF));
     const grid = [];
     for (let i = 0; i < n; i++) if (!special.has(i)) grid.push(i);
     const tall = (i) => caps[i] * UNIT + NECK; // in tube widths
 
+    // The regular tubes form groups: one, or two mirrored ones either side
+    // of middle giant tubes. Every row of a group has the same number of
+    // tubes; a short row goes on top, centered.
+    const groups = centerF.length && grid.length > 1 ? 2 : 1;
+    const shares = groups === 2 ? [grid.slice(0, Math.ceil(grid.length / 2)), grid.slice(Math.ceil(grid.length / 2))] : [grid];
     const plan = (rows) => {
-      const rowsOf = [];
-      for (let r = 0, at = 0; r < rows; r++) {
-        const k = Math.ceil((grid.length - at) / (rows - r));
-        rowsOf.push(grid.slice(at, (at += k)));
-      }
-      const rowH = rowsOf.map((row) => Math.max(0, ...row.map(tall)) + LIFT);
+      const cols = Math.ceil(shares[0].length / rows);
+      if (rows > 1 && (rows - 1) * cols >= shares[0].length) return null;
+      // Rows bottom-up: full rows first, the remainder on top.
+      const blocks = shares.map((share) => {
+        const out = [];
+        for (let r = 0; r < rows; r++) out.push(share.slice(r * cols, (r + 1) * cols));
+        return out;
+      });
+      const rowH = [];
+      for (let r = 0; r < rows; r++) rowH.push(Math.max(0, ...blocks.map((b) => Math.max(0, ...b[r].map(tall)))) + LIFT);
       const gridH = rowH.reduce((a, b) => a + b, 0) + (rows - 1) * GAP_Y;
       const featH = Math.max(0, ...Array.from(special, (i) => tall(i) + LIFT));
-      const cols = (rowsOf[0] ? rowsOf[0].length : 0) + special.size;
-      const byWidth = bw / (cols + GAP_X * (cols - 1));
-      const byHeight = bh / Math.max(gridH, featH);
-      return { rowsOf, rowH, gridH, blockH: Math.max(gridH, featH), cols, w: Math.min(byWidth, byHeight, MAX_W) };
+      // Sections from left to right, in tube widths.
+      const sections = [];
+      if (leftF.length) sections.push({ giants: leftF });
+      blocks.forEach((b, k) => {
+        sections.push({ block: b });
+        if (k === 0 && centerF.length) sections.push({ giants: centerF });
+      });
+      if (groups === 1 && centerF.length) sections.push({ giants: centerF });
+      if (rightF.length) sections.push({ giants: rightF });
+      const span = (count) => count + GAP_X * (count - 1);
+      sections.forEach((sec) => (sec.units = span(sec.giants ? sec.giants.length : cols)));
+      const widthUnits = sections.reduce((a, sec) => a + sec.units, 0) + (sections.length - 1) * (GAP_X + SECTION_GAP);
+      const blockH = Math.max(gridH, featH);
+      const w = Math.min(bw / widthUnits, bh / blockH, MAX_W);
+      return { rows, cols, blocks, rowH, blockH, sections, widthUnits, w };
     };
-    let best = plan(1);
-    for (let rows = 2; rows <= Math.min(4, grid.length); rows++) {
+    const plans = [];
+    for (let rows = 1; rows <= Math.min(4, Math.max(1, shares[0].length)); rows++) {
       const p = plan(rows);
+      if (p) plans.push(p);
+    }
+    let best = plans[0];
+    plans.forEach((p) => {
       if (p.w > best.w + 0.5) best = p;
+    });
+    // With lots of tubes, stack them into groups when that costs at most a
+    // quarter of the tube size.
+    if (grid.length >= GROUP_FROM) {
+      const stacked = plans.filter((p) => p.rows > 1 && p.w >= best.w * 0.75);
+      if (stacked.length) best = stacked.reduce((a, p) => (p.w > a.w + 0.5 ? p : a));
     }
 
     const w = Math.floor(best.w);
@@ -809,7 +848,7 @@
     board.style.setProperty('--w', w + 'px');
     board.style.setProperty('--unit', unit + 'px');
     const step = w * (1 + GAP_X);
-    const totalW = best.cols * w + (best.cols - 1) * w * GAP_X;
+    const totalW = best.widthUnits * w;
     const x0 = (bw - totalW) / 2;
     const bottom = Math.max(0, (bh - best.blockH * w) / 2) + best.blockH * w;
 
@@ -823,38 +862,38 @@
       el.style.width = w + 'px';
       el.style.height = h + 'px';
     };
-
     rackEls.forEach((r) => r.remove());
     rackEls = [];
-    const gridCols = best.cols - special.size;
-    const gridX0 = x0 + leftF.length * step;
-    const centerX = gridX0 + Math.ceil(gridCols / 2) * step;
-    let foot = bottom - best.gridH * w;
-    best.rowsOf.forEach((row, r) => {
-      foot += best.rowH[r] * w + (r ? GAP_Y * w : 0);
-      if (center >= 0) {
-        // Half the row on each side of the middle column.
-        const leftCount = Math.ceil(row.length / 2);
-        row.forEach((i, j) => {
-          place(i, j < leftCount ? centerX - (leftCount - j) * step : centerX + (j - leftCount + 1) * step, foot);
+    const rack = (x, width, foot) => {
+      const el = document.createElement('div');
+      el.className = 'rack';
+      el.style.left = x - w * 0.35 + 'px';
+      el.style.width = width + w * 0.7 + 'px';
+      el.style.top = foot - w * 1.05 + 'px';
+      el.style.height = w * 0.44 + 'px';
+      board.insertBefore(el, board.firstChild);
+      rackEls.push(el);
+    };
+
+    // Feet of each row, bottom-up.
+    const feet = [bottom];
+    for (let r = 1; r < best.rows; r++) feet.push(feet[r - 1] - (best.rowH[r - 1] + GAP_Y) * w);
+    // Everything stands on one shelf along the bottom; upper rows get a
+    // shelf per group.
+    rack(x0, totalW, bottom);
+    let x = x0;
+    best.sections.forEach((sec) => {
+      const secW = sec.units * w;
+      if (sec.giants) sec.giants.forEach((i, k) => place(i, x + k * step, bottom));
+      else {
+        sec.block.forEach((row, r) => {
+          const rowW = row.length * w + Math.max(0, row.length - 1) * GAP_X * w;
+          row.forEach((i, j) => place(i, x + (secW - rowW) / 2 + j * step, feet[r]));
+          if (r > 0 && row.length) rack(x, secW, feet[r]);
         });
-      } else {
-        const gridW = gridCols * w + (gridCols - 1) * w * GAP_X;
-        const rowW = row.length * w + (row.length - 1) * w * GAP_X;
-        row.forEach((i, j) => place(i, gridX0 + (gridW - rowW) / 2 + j * step, foot));
       }
-      const rack = document.createElement('div');
-      rack.className = 'rack';
-      rack.style.left = x0 - w * 0.35 + 'px';
-      rack.style.width = totalW + w * 0.7 + 'px';
-      rack.style.top = foot - w * 1.05 + 'px';
-      rack.style.height = w * 0.44 + 'px';
-      board.insertBefore(rack, board.firstChild);
-      rackEls.push(rack);
+      x += secW + (GAP_X + SECTION_GAP) * w;
     });
-    if (center >= 0) place(center, centerX, bottom);
-    leftF.forEach((i, k) => place(i, x0 + k * step, bottom));
-    rightF.forEach((i, k) => place(i, x0 + (best.cols - rightF.length + k) * step, bottom));
   }
 
   function segHtml(seg, isTop) {
@@ -1836,23 +1875,11 @@
       if (n >= 1 && n <= 9999) startLevel(n);
     });
     // Mode switches on Mix your own.
-    // Giant Tubes and Mini Tubes can't be combined yet, so turning one on
-    // turns the other off.
     const setMode = (change) => {
-      const m = saved.custom.modes;
-      let swapped = '';
-      if (change.giant && m.minis) swapped = 'Giant Tubes and Mini Tubes can\'t be combined yet, so Mini Tubes is off.';
-      if (change.minis && m.giant) swapped = 'Giant Tubes and Mini Tubes can\'t be combined yet, so Giant Tubes is off.';
-      Object.assign(m, change);
-      if (change.giant) m.minis = false;
-      if (change.minis) m.giant = 0;
+      Object.assign(saved.custom.modes, change);
       const { clamped } = clampCustom();
       save();
       renderCustom(clamped);
-      if (swapped) {
-        $('sizeNote').hidden = false;
-        $('sizeNote').textContent = swapped;
-      }
     };
     $('modeGiant').addEventListener('change', (e) => {
       const count = Number((document.querySelector('input[name="giants"]:checked') || {}).value) || 1;

@@ -626,7 +626,26 @@
     m.minis = !!m.minis;
     m.labels = !!m.labels;
     m.mystery = !!m.mystery;
+    // With mini tubes, only one giant tube (two take too long to generate).
+    if (m.minis && m.giant > 1) m.giant = 1;
     return m;
+  }
+
+  // Giant tubes with mini tubes dig a packed giant tube out through small
+  // tubes only, which is slow to generate past a small board. More empty
+  // tubes don't help: they arrive as more small tubes, so more pours to
+  // check. These limits keep every such mix to a few seconds.
+  function giantMinis(modes) {
+    const m = normalizeModes(modes);
+    return m.giant > 0 && m.minis;
+  }
+
+  function maxEmptiesFor(modes) {
+    return giantMinis(modes) ? 2 : 3;
+  }
+
+  function maxCapFor(modes) {
+    return giantMinis(modes) ? 5 : 6;
   }
 
   // True when the board itself differs from classic (mystery doesn't).
@@ -726,7 +745,10 @@
     }
     board.featured = null;
     if (g) {
-      const spots = g === 1 ? ['center', 'left', 'right'] : ['ends', 'left', 'right'];
+      // Placed so the board stays symmetric: one giant tube in the middle;
+      // two at both ends or side by side in the middle. (Three draws, as
+      // before, so every board keeps the same puzzle.)
+      const spots = g === 1 ? ['center', 'center', 'center'] : ['ends', 'center', 'ends'];
       const spot = spots[rng.int(spots.length)];
       const giants = g === 1 ? [at] : [at, at + 1];
       board.featured = { left: [], center: [], right: [] };
@@ -744,7 +766,7 @@
     const m = normalizeModes(modes);
     // Small tubes plus labeled tubes give many pours to check at every step,
     // so past 8 colors a fair puzzle takes too long to find.
-    if (m.minis && m.labels) return 8;
+    if (m.minis && (m.labels || m.giant)) return 8;
     if (hasBoardModes(m)) return PALETTE_SIZE;
     return empties <= 1 ? ONE_EMPTY_MAX_COLORS[cap] || 6 : PALETTE_SIZE;
   }
@@ -1093,6 +1115,8 @@
     modesMatter,
     minColorsFor,
     minEmptiesFor,
+    maxEmptiesFor,
+    maxCapFor,
     rate,
     generate,
     labOf,

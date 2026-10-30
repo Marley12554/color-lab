@@ -269,6 +269,38 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await q.waitForSelector('.tube', { timeout: 20000 });
     const code = await q.textContent('#levelTitle');
     check(code.includes('12532102-'), `code carries the settings and trickiness (${code})`);
+    // Giant Tubes with Mini Tubes: both stay on, within their limits, and the
+    // board has a giant tube and small ones.
+    await q.click('#homeBtn');
+    await q.click('#customBtn');
+    await q.click('.preset[data-preset="genius"]');
+    await q.click('label:has(#modeLabels)');
+    await q.click('label:has(#mysteryToggle)');
+    await q.click('label:has(#modeGiant)');
+    await q.click('label:has(#modeMinis)');
+    check(await q.isChecked('#modeGiant') && await q.isChecked('#modeMinis'), 'Giant and Mini Tubes stay on together');
+    check(await q.isDisabled('input[name="giants"][value="2"]'), 'two giant tubes are off with Mini Tubes');
+    const lim = await q.evaluate(() => ['colorsOut', 'capOut', 'emptiesOut'].map((id) => +document.getElementById(id).textContent));
+    check(lim[0] <= 8 && lim[1] <= 5 && lim[2] === 2, `Giant + Mini limits apply (${lim})`);
+    check((await q.textContent('#sizeNote')).includes('Giant Tubes with Mini Tubes'), 'Giant + Mini explains its limits');
+    await q.click('#mixBtn');
+    await q.waitForSelector('.tube', { timeout: 20000 });
+    const gm = await q.evaluate(() => {
+      const hs = [...document.querySelectorAll('.tube')].map((t) => t.offsetHeight);
+      const sorted = [...new Set(hs)].sort((a, b) => a - b);
+      return { kinds: sorted.length, max: Math.max(...hs), min: Math.min(...hs) };
+    });
+    check(gm.kinds >= 3 && gm.max > gm.min * 2, `board has giant, regular, and small tubes (${JSON.stringify(gm)})`);
+    // A middle giant tube splits the board into two matching groups.
+    const sym = await q.evaluate(() => {
+      const board = document.getElementById('board').getBoundingClientRect();
+      const tubes = [...document.querySelectorAll('.tube')].map((t) => t.getBoundingClientRect());
+      const giant = tubes.reduce((a, t) => (t.height > a.height ? t : a));
+      const left = tubes.filter((t) => t.right <= giant.left).length;
+      const right = tubes.filter((t) => t.left >= giant.right).length;
+      return { offset: Math.abs(giant.left + giant.width / 2 - (board.left + board.width / 2)), left, right };
+    });
+    check(sym.offset < 2 && Math.abs(sym.left - sym.right) <= 1, `giant tube in the middle of matching groups (${JSON.stringify(sym)})`);
     // Codes from before trickiness are turned away.
     await q.click('#homeBtn');
     await q.click('#customBtn');

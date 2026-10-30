@@ -95,7 +95,7 @@ test('the solver agrees with brute force on small puzzles', () => {
   assert.ok(solvable > 50 && unsolvable > 20, `${solvable} solvable, ${unsolvable} not`);
 });
 
-const MODE_SETS = ['g1', 'g2', 'mini', 'label', 'g1 label', 'g2 label', 'mini label'];
+const MODE_SETS = ['g1', 'g2', 'mini', 'label', 'g1 label', 'g2 label', 'mini label', 'g1 mini', 'g1 mini label'];
 
 test('the solver agrees with brute force in every mode', () => {
   for (const text of MODE_SETS) {
@@ -214,7 +214,7 @@ test('generated puzzles are solvable, fair, and use distinct lab colors', () => 
 test('every mode generates fair puzzles where the mode matters', () => {
   for (const text of MODE_SETS) {
     const modes = C.parseModes(text);
-    for (const units of [4, 6]) {
+    for (const units of [4, C.maxCapFor(modes)]) {
       const colors = Math.max(C.minColorsFor(modes), 7);
       const empties = Math.max(2, C.minEmptiesFor(modes));
       const p = C.generate({ colors, cap: units, empties, modes, seed: `mode-${text}-${units}` });
