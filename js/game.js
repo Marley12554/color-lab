@@ -368,6 +368,7 @@
     document.querySelectorAll('input[name="giants"]').forEach((r) => {
       r.disabled = !m.giant;
       r.checked = Number(r.value) === (m.giant || 1);
+      r.closest('label').classList.toggle('on', r.checked);
     });
     $('modeMinis').checked = m.minis;
     $('modeLabels').checked = m.labels;
@@ -388,6 +389,7 @@
     else note.textContent = 'Up to ' + max + ' colors.';
     document.querySelectorAll('input[name="trick"]').forEach((r) => {
       r.checked = Number(r.value) === c.trick;
+      r.closest('label').classList.toggle('on', r.checked);
     });
     $('mysteryToggle').checked = m.mystery;
     // A preset stays lit only while every setting still matches it.

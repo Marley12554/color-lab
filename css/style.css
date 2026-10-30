@@ -726,7 +726,8 @@ input:focus-visible,
   font: 700 11px/1 var(--font-body);
 }
 
-.trick input:checked + span {
+/* Lit from code (.on), which every browser redraws reliably. */
+.trick label.on span {
   background: var(--go);
   color: #fff;
 }
@@ -870,7 +871,7 @@ input:focus-visible,
   cursor: pointer;
 }
 
-.chips input:checked + span {
+.chips label.on span {
   background: var(--go);
   color: #fff;
 }
