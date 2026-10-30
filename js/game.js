@@ -610,6 +610,8 @@
       return el;
     });
     rackEls = [];
+    // Ready the shape pictures the pour draws, so the first pour doesn't wait on them.
+    if (saved.shapes) new Set(game.tubes.flat()).forEach(shapeImage);
     layout();
     renderAll();
   }
@@ -882,95 +884,391 @@
     saveRun();
   }
 
+  // ---------- The pour, drawn frame by frame ----------
+  //
+  // While a tube tips, its liquid is painted on a canvas inside its glass.
+  // Every layer keeps its amount and its surface stays level with the
+  // ground, so the liquid slides toward the mouth as the tube tips. The tube
+  // tips just far enough for the liquid to reach the lip, then keeps tipping
+  // as it empties, turning around the lip so the stream stays in one place.
+  // The stream falls, lands in the target, and the target fills as the
+  // liquid arrives.
+
+  // The inside of a glass: straight sides and a round bottom.
+  function glassShape(W, H) {
+    const r = W / 2;
+    const cy = Math.max(0, H - r);
+    const pts = [[0, 0], [W, 0]];
+    for (let s = 0; s <= 12; s++) {
+      const a = (Math.PI * s) / 12;
+      pts.push([r + r * Math.cos(a), cy + r * Math.sin(a)]);
+    }
+    return pts;
+  }
+
+  // The part of a shape at depth D or deeper, depth measured along g.
+  function clipDeep(poly, gx, gy, D) {
+    const out = [];
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % poly.length];
+      const da = a[0] * gx + a[1] * gy - D;
+      const db = b[0] * gx + b[1] * gy - D;
+      if (da >= 0) out.push(a);
+      if (da >= 0 !== db >= 0) {
+        const t = da / (da - db);
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      }
+    }
+    return out;
+  }
+
+  function areaOf(poly) {
+    let s = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i];
+      const b = poly[(i + 1) % poly.length];
+      s += a[0] * b[1] - b[0] * a[1];
+    }
+    return Math.abs(s) / 2;
+  }
+
+  function centroidOf(poly) {
+    let x = 0;
+    let y = 0;
+    poly.forEach((p) => {
+      x += p[0];
+      y += p[1];
+    });
+    return [x / poly.length, y / poly.length];
+  }
+
+  // The surface depth that leaves `amount` of area below it.
+  function levelFor(poly, gx, gy, amount) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    poly.forEach((p) => {
+      const d = p[0] * gx + p[1] * gy;
+      lo = Math.min(lo, d);
+      hi = Math.max(hi, d);
+    });
+    for (let i = 0; i < 18; i++) {
+      const mid = (lo + hi) / 2;
+      if (areaOf(clipDeep(poly, gx, gy, mid)) > amount) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const clamp01 = (t) => Math.max(0, Math.min(1, t));
+
+  // Color shape pictures for the canvas, made once per shape.
+  const shapeImages = {};
+  function shapeImage(color) {
+    const s = game.palette[color];
+    if (!shapeImages[s]) {
+      const img = new Image();
+      img.src =
+        'data:image/svg+xml,' +
+        encodeURIComponent(
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="rgba(255,255,255,0.82)">' + SHAPES[s] + '</svg>'
+        );
+      if (img.decode) img.decode().catch(() => {});
+      shapeImages[s] = img;
+    }
+    return shapeImages[s];
+  }
+
   function animatePour(f, t, k, color, dstBefore) {
     if (reduceMotion || !positions[f] || !positions[t]) return Promise.resolve();
+    const token = game.loadToken;
     const el = tubeEls[f];
     const src = positions[f];
     const dst = positions[t];
     const w = src.w;
     const dir = src.x < dst.x ? 1 : -1;
-    const angle = dir * 74;
-    // The tube turns around the middle of its mouth, so put that point just
-    // above the target's opening.
-    const mouthX = dst.x + dst.w / 2 - dir * w * 0.12;
-    const mouthY = dst.y - w * 0.55;
-    const dx = mouthX - (src.x + w / 2);
-    const dy = mouthY - src.y;
-    const from = 'translate(0px, ' + -w * 0.36 + 'px) rotate(0deg)';
-    const to = 'translate(' + dx + 'px, ' + dy + 'px) rotate(' + angle + 'deg)';
 
-    // While the tube tips, its liquid slides toward the mouth and stays
-    // there as it drains, then slides back down when the tube rights itself.
-    const liquid = el.querySelector('.liquid');
-    const inner = src.h - w * 0.08 - 6;
-    const room = Math.max(0, inner - game.history[game.history.length - 1].tubes[f].length * unit - w * 0.06);
-    const slid = 'translateY(' + -room + 'px)';
-    const drained = 'translateY(' + -(room + k * unit) + 'px)';
-    const ease = { duration: 300, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' };
+    // The source's layers, read from the board before it changes.
+    const liquidEl = el.querySelector('.liquid');
+    const segs = Array.from(liquidEl.children).map((s) => ({
+      n: Number(s.style.getPropertyValue('--n')) || 1,
+      color: s.dataset.color === '' ? -1 : Number(s.dataset.color),
+      hidden: s.classList.contains('hidden'),
+    }));
+    const n0 = segs.reduce((sum, s) => sum + s.n, 0);
+    const glass = el.querySelector('.glass');
+    const W = glass.clientWidth;
+    const H = glass.clientHeight;
+    const shape = glassShape(W, H);
+    const amount = (units) => areaOf(clipDeep(shape, 0, 1, H - units * unit));
 
-    el.classList.add('pouring');
-    const swing = el.animate([{ transform: from }, { transform: to }], ease);
-    const slide = liquid.animate([{ transform: 'none' }, { transform: slid }], ease);
-    return swing.finished
-      .then(() => {
-        const stream = document.createElement('div');
-        stream.className = 'stream';
-        const sw = Math.max(5, w * 0.17);
-        const surface = dst.y + dst.h - 3 - dstBefore * unit;
-        stream.style.left = mouthX - sw / 2 + 'px';
-        stream.style.top = mouthY + 'px';
-        stream.style.width = sw + 'px';
-        stream.style.height = Math.max(10, surface - mouthY) + 'px';
-        stream.style.background = colorOf(color);
-        board.appendChild(stream);
-        stream.animate([{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }], { duration: 110, fill: 'forwards' });
-        moveLiquid(f, t, k, color, 420);
-        liquid.animate([{ transform: slid }, { transform: drained }], { duration: 420, easing: 'linear', fill: 'forwards' });
-        slide.cancel();
-        return wait(470).then(() => stream);
-      })
-      .then((stream) => {
-        stream
-          .animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' })
-          .finished.then(() => stream.remove(), () => stream.remove());
-        const back = el.animate([{ transform: to }, { transform: 'translate(0px, 0px) rotate(0deg)' }], {
-          duration: 260,
-          easing: 'cubic-bezier(.4,0,.2,1)',
-        });
-        const settle = liquid.animate([{ transform: drained }, { transform: 'none' }], {
-          duration: 260,
-          easing: 'cubic-bezier(.5,0,.8,.6)',
-        });
-        swing.cancel();
-        liquid.getAnimations().forEach((a) => a !== settle && a.cancel());
-        return back.finished;
-      })
-      .then(() => {
-        el.classList.remove('lifted');
-        el.classList.remove('pouring');
+    // How much the tube holds before spilling when tipped by `angle`.
+    const holds = (angle) => {
+      const gx = Math.sin(angle);
+      const gy = Math.cos(angle);
+      return areaOf(clipDeep(shape, gx, gy, Math.max(0, W * gx)));
+    };
+    const tiltFor = (units) => {
+      const a = amount(units);
+      let lo = 0;
+      let hi = Math.PI / 2;
+      for (let i = 0; i < 16; i++) {
+        const mid = (lo + hi) / 2;
+        if (holds(dir * mid) > a) lo = mid;
+        else hi = mid;
+      }
+      return (dir * (lo + hi)) / 2;
+    };
+    const tiltStart = tiltFor(n0);
+    const tiltEnd = tiltFor(n0 - k);
+
+    // The tube turns around the transform origin (its top middle). The
+    // stream leaves from the outer edge of the lip, which stays put over
+    // the middle of the target while the liquid runs.
+    const origin = [w / 2, 0];
+    const lip = [w / 2 + dir * w * 0.56, w * 0.1];
+    const turn = (p, a) => [p[0] * Math.cos(a) - p[1] * Math.sin(a), p[0] * Math.sin(a) + p[1] * Math.cos(a)];
+    // Lift the lip high enough that the tipped tube clears the target.
+    const outline = [[-0.09 * w, 0], [1.09 * w, 0], [-0.09 * w, 0.17 * w], [1.09 * w, 0.17 * w]];
+    for (let s = 0; s <= 16; s++) outline.push([0, (src.h * s) / 16], [w, (src.h * s) / 16]);
+    let below = 0;
+    [tiltStart, (tiltStart + tiltEnd) / 2, tiltEnd].forEach((a) => {
+      outline.forEach((p) => {
+        const q = turn([p[0] - lip[0], p[1] - lip[1]], a);
+        if (Math.abs(q[0]) < dst.w * 0.62) below = Math.max(below, q[1]);
       });
-  }
+    });
+    const stream = [dst.x + dst.w / 2, dst.y - Math.min(w * 1.5, Math.max(w * 0.45, below + w * 0.18))];
+    const shift = (a) => {
+      const q = turn([lip[0] - origin[0], lip[1] - origin[1]], a);
+      return [stream[0] - src.x - origin[0] - q[0], stream[1] - src.y - origin[1] - q[1]];
+    };
+    const lifted = [0, -w * 0.36];
+    const shiftStart = shift(tiltStart);
+    const shiftEnd = shift(tiltEnd);
 
-  // Shrinks the source's top section and grows the target's while the
-  // stream runs. The model already moved; this is only the picture.
-  function moveLiquid(f, t, k, color, duration) {
-    const opts = { duration, easing: 'linear', fill: 'forwards' };
-    const srcTop = tubeEls[f].querySelector('.liquid').lastElementChild;
-    if (srcTop) {
-      const n = Number(srcTop.style.getPropertyValue('--n')) || k;
-      srcTop.animate([{ height: n * unit + 'px' }, { height: Math.max(0, n - k) * unit + 'px' }], opts);
-    }
-    const dstLiquid = tubeEls[t].querySelector('.liquid');
+    const canvas = document.createElement('canvas');
+    canvas.className = 'pour-canvas';
+    const dpr = Math.min(3, window.devicePixelRatio || 1);
+    canvas.width = Math.ceil(W * dpr);
+    canvas.height = Math.ceil(H * dpr);
+    liquidEl.after(canvas);
+    liquidEl.style.visibility = 'hidden';
+    const ctx = canvas.getContext('2d');
+    const markFont = getComputedStyle(document.body).getPropertyValue('--font-display');
+    const shine = ctx.createLinearGradient(0, 0, W, 0);
+    shine.addColorStop(0, 'rgba(255,255,255,0.32)');
+    shine.addColorStop(0.38, 'rgba(255,255,255,0)');
+    shine.addColorStop(0.7, 'rgba(0,0,0,0)');
+    shine.addColorStop(1, 'rgba(0,0,0,0.14)');
+    // The diagonal stripes on mystery layers.
+    const tile = document.createElement('canvas');
+    tile.width = tile.height = 20;
+    const tc = tile.getContext('2d');
+    tc.strokeStyle = 'rgba(255,255,255,0.28)';
+    tc.lineWidth = 7;
+    [-20, 0, 20].forEach((o) => {
+      tc.beginPath();
+      tc.moveTo(o, 20);
+      tc.lineTo(o + 20, 0);
+      tc.stroke();
+    });
+    const stripes = ctx.createPattern(tile, 'repeat');
+
+    const fillPoly = (poly, style) => {
+      if (poly.length < 3) return;
+      ctx.beginPath();
+      poly.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      ctx.closePath();
+      ctx.fillStyle = style;
+      ctx.fill();
+    };
+
+    // Paints the source holding `units` of liquid, tipped by `angle`.
+    const drawSource = (units, angle) => {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      const gx = Math.sin(angle);
+      const gy = Math.cos(angle);
+      if (units <= 0.001) return;
+      // Layer edges, bottom to top; the top layer is the one draining.
+      const edges = [];
+      let below = 0;
+      segs.forEach((s) => {
+        const top = Math.min(below + s.n, units);
+        if (top > below) edges.push({ s, from: below, to: top });
+        below += s.n;
+      });
+      const depths = new Map();
+      const depth = (u) => {
+        if (!depths.has(u)) depths.set(u, levelFor(shape, gx, gy, amount(u)));
+        return depths.get(u);
+      };
+      const surface = depth(units);
+      // Each layer paints from its top surface down; the lower ones paint over.
+      for (let i = edges.length - 1; i >= 0; i--) {
+        const e = edges[i];
+        const region = clipDeep(shape, gx, gy, i === edges.length - 1 ? surface : depth(e.to));
+        fillPoly(region, e.s.hidden ? '#b8b4d8' : colorOf(e.s.color));
+        if (e.s.hidden) fillPoly(region, stripes);
+      }
+      const all = clipDeep(shape, gx, gy, surface);
+      fillPoly(all, shine);
+      // The bright line on the surface.
+      fillPoly(clipDeep(all, -gx, -gy, -(surface + 4)), 'rgba(255,255,255,0.45)');
+      // Shapes and mystery marks, one per whole layer.
+      edges.forEach((e) => {
+        if (!e.s.hidden && !saved.shapes) return;
+        for (let u = e.from; u < e.to - 0.5; u++) {
+          const slice = clipDeep(clipDeep(shape, gx, gy, depth(Math.min(u + 1, e.to))), -gx, -gy, -depth(u));
+          if (slice.length < 3) continue;
+          const c = centroidOf(slice);
+          ctx.save();
+          ctx.shadowColor = 'rgba(0,0,0,0.25)';
+          ctx.shadowOffsetY = 1;
+          ctx.shadowBlur = 1;
+          if (e.s.hidden) {
+            ctx.font = '700 ' + w * 0.44 + 'px ' + markFont;
+            ctx.fillStyle = 'rgba(255,255,255,0.95)';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('?', c[0], c[1]);
+          } else {
+            const img = shapeImage(e.s.color);
+            const size = Math.min(W * 0.44, unit * 0.7);
+            if (img.complete && img.naturalWidth) ctx.drawImage(img, c[0] - size / 2, c[1] - size / 2, size, size);
+          }
+          ctx.restore();
+        }
+      });
+    };
+
+    // The target's top layer grows as the liquid lands.
+    const dstGlass = tubeEls[t].querySelector('.glass');
+    const dstLiquid = dstGlass.querySelector('.liquid');
     let dstTop = dstLiquid.lastElementChild;
-    if (dstTop && dstTop.dataset.color === String(color)) {
-      const m = Number(dstTop.style.getPropertyValue('--n')) || 0;
-      dstTop.animate([{ height: m * unit + 'px' }, { height: (m + k) * unit + 'px' }], opts);
-    } else {
+    let m0 = 0;
+    if (dstTop && dstTop.dataset.color === String(color)) m0 = Number(dstTop.style.getPropertyValue('--n')) || 0;
+    else {
       if (dstTop) dstTop.classList.remove('top');
       dstLiquid.insertAdjacentHTML('beforeend', segHtml({ color, n: k, hidden: false }, true));
       dstTop = dstLiquid.lastElementChild;
-      dstTop.animate([{ height: '0px' }, { height: k * unit + 'px' }], opts);
     }
+    dstTop.style.height = m0 * unit + 'px';
+
+    // The stream: one piece above the target, and one inside its glass
+    // (behind its label and shine) that runs down to the surface.
+    const glassTop = dst.y + dstGlass.offsetTop + dstGlass.clientTop;
+    const glassLeft = dst.x + dstGlass.offsetLeft + dstGlass.clientLeft;
+    const dstH = dstGlass.clientHeight;
+    const outside = document.createElement('div');
+    const inside = document.createElement('div');
+    const splash = document.createElement('div');
+    outside.className = 'stream';
+    inside.className = 'stream inside';
+    splash.className = 'splash';
+    [outside, inside, splash].forEach((d) => (d.style.background = colorOf(color)));
+    board.appendChild(outside);
+    dstGlass.appendChild(inside);
+    dstGlass.appendChild(splash);
+    const maxWidth = Math.max(5, w * 0.2);
+    const showStream = (head, tail, width, landing) => {
+      // head and tail are board heights; head is the lower end.
+      const x = stream[0] - width / 2;
+      const show = (d, top, bottom, left) => {
+        d.style.display = bottom > top ? 'block' : 'none';
+        d.style.left = left + 'px';
+        d.style.top = top + 'px';
+        d.style.width = width + 'px';
+        d.style.height = Math.max(0, bottom - top) + 'px';
+        d.style.borderRadius = width / 2 + 'px';
+      };
+      show(outside, tail, Math.min(head, dst.y + w * 0.06), x);
+      show(inside, Math.max(tail, glassTop) - glassTop, head - glassTop, x - glassLeft);
+      splash.style.display = landing ? 'block' : 'none';
+      if (landing) {
+        const sw = width * 2.4;
+        const sh = Math.max(3, width * 0.55);
+        splash.style.left = x - glassLeft + width / 2 - sw / 2 + 'px';
+        splash.style.top = head - glassTop - sh / 2 + 'px';
+        splash.style.width = sw + 'px';
+        splash.style.height = sh + 'px';
+      }
+    };
+    showStream(0, 0, 0, false);
+
+    // Timing, in milliseconds.
+    const TIP = 300;
+    const RUN = Math.min(760, 240 + 85 * k);
+    const BACK = 280;
+    const surfaceAt = (units) => glassTop + dstH - units * unit;
+    const fallTime = Math.max(80, Math.min(170, 50 + (22 * (surfaceAt(m0) - stream[1])) / w));
+    const total = TIP + RUN + Math.max(BACK, fallTime);
+    const flow = (ms) => easeInOut(clamp01(ms / RUN));
+    const fall = (ms) => clamp01(ms / fallTime) ** 2;
+    const pose = (sh, a) => 'translate(' + sh[0] + 'px, ' + sh[1] + 'px) rotate(' + a + 'rad)';
+
+    el.classList.add('pouring');
+    return new Promise((resolve) => {
+      const start = performance.now();
+      const finish = () => {
+        canvas.remove();
+        outside.remove();
+        inside.remove();
+        splash.remove();
+        liquidEl.style.visibility = '';
+        el.style.transform = '';
+        el.classList.remove('lifted');
+        el.classList.remove('pouring');
+        resolve();
+      };
+      const frame = () => {
+        if (token !== game.loadToken || !el.isConnected) return finish();
+        const ms = performance.now() - start;
+        let units = n0;
+        let angle = 0;
+        let sh = lifted;
+        if (ms < TIP) {
+          const p = easeInOut(ms / TIP);
+          angle = tiltStart * p;
+          sh = [lifted[0] + (shiftStart[0] - lifted[0]) * p, lifted[1] + (shiftStart[1] - lifted[1]) * p];
+        } else if (ms < TIP + RUN) {
+          units = n0 - k * flow(ms - TIP);
+          angle = tiltFor(units);
+          sh = shift(angle);
+        } else {
+          units = n0 - k;
+          const p = easeInOut(clamp01((ms - TIP - RUN) / BACK));
+          angle = tiltEnd * (1 - p);
+          sh = [shiftEnd[0] * (1 - p), shiftEnd[1] * (1 - p)];
+        }
+        el.style.transform = pose(sh, angle);
+        drawSource(units, angle);
+
+        // The liquid reaches the target one fall later than it leaves.
+        const run = ms - TIP;
+        const landed = m0 + k * flow(run - fallTime);
+        dstTop.style.height = landed * unit + 'px';
+        const surface = surfaceAt(landed);
+        if (run <= 0) showStream(0, 0, 0, false);
+        else {
+          const head = Math.min(surface, stream[1] + (surface - stream[1]) * fall(run));
+          const tail = run < RUN ? stream[1] : stream[1] + (surface - stream[1]) * fall(run - RUN);
+          const rate = Math.sin(Math.PI * clamp01(run / RUN));
+          const width = maxWidth * (run < RUN ? 0.4 + 0.6 * rate : 0.4);
+          showStream(head, tail, width, head >= surface - 1 && tail < surface);
+        }
+        if (ms >= total) {
+          // Draw the final state before the pieces come off, so nothing flickers.
+          renderTube(f);
+          renderTube(t);
+          return finish();
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
   }
 
   function celebrateSeal(i) {
@@ -1280,6 +1578,7 @@
     if (reduceMotion) return;
     const canvas = $('confetti');
     const ctx = canvas.getContext('2d');
+    const markFont = getComputedStyle(document.body).getPropertyValue('--font-display');
     const dpr = window.devicePixelRatio || 1;
     const W = window.innerWidth;
     const H = window.innerHeight;
