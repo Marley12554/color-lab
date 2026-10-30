@@ -247,18 +247,37 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     const said = await q.textContent('#say');
     check(/^That tube only takes [a-z ]+!$/.test(said), `labeled tube refuses other colors (${said})`);
     check((await moves(q)) === 0, 'refused pour does not count');
-    // Codes: old six-digit codes are classic; old board shapes are explained.
+    // Presets: one tap sets every setting and lights its card; changing a
+    // setting after that shows Custom and keeps the rest, trickiness included.
+    await q.click('#homeBtn');
+    await q.click('#customBtn');
+    await q.click('.preset[data-preset="genius"]');
+    check((await q.getAttribute('.preset[data-preset="genius"]', 'aria-pressed')) === 'true', 'Genius card lights up');
+    check((await q.textContent('#colorsOut')) === '12' && (await q.textContent('#capOut')) === '5', 'Genius sets the board size');
+    check(await q.isChecked('#modeLabels') && await q.isChecked('#mysteryToggle'), 'Genius turns on its modes');
+    check(await q.isHidden('#customBadge'), 'no Custom badge while a preset matches');
+    await q.click('.stepper[data-key="empties"] [data-step="1"]');
+    check(await q.isVisible('#customBadge'), 'changing a setting shows Custom');
+    check((await q.locator('.preset[aria-pressed="true"]').count()) === 0, 'no preset lit once changed');
+    check(await q.isChecked('input[name="trick"][value="2"]'), 'trickiness stays where it was');
+    await q.click('.preset[data-preset="hard"]');
+    const hardModes = await q.evaluate(() => ['modeGiant', 'modeLabels', 'mysteryToggle'].filter((id) => document.getElementById(id).checked));
+    check(hardModes.length === 1, `Hard adds one surprise mode (${hardModes})`);
+    await q.click('.preset[data-preset="genius"]');
+    await q.click('.stepper[data-key="empties"] [data-step="1"]');
+    await q.click('#mixBtn');
+    await q.waitForSelector('.tube', { timeout: 20000 });
+    const code = await q.textContent('#levelTitle');
+    check(code.includes('12532102-'), `code carries the settings and trickiness (${code})`);
+    // Codes from before trickiness are turned away.
     await q.click('#homeBtn');
     await q.click('#customBtn');
     await q.fill('#codeInput', '064220-1234');
     await q.click('#codeForm button');
-    await q.waitForSelector('.tube');
-    check((await q.textContent('#levelTitle')).includes('06422000-1234'), 'old code opens as a classic board');
-    await q.click('#homeBtn');
-    await q.click('#customBtn');
-    await q.fill('#codeInput', '0642201-1234');
+    check((await q.textContent('#codeError')).includes('older version'), 'old code explains itself');
+    await q.fill('#codeInput', '06423010-1234');
     await q.click('#codeForm button');
-    check((await q.textContent('#codeError')).includes('older version'), 'old board code explains itself');
+    check((await q.textContent('#codeError')).includes('does not look right'), 'trickiness above 2 is rejected');
     await ctx.close();
   }
 

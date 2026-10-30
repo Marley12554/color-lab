@@ -82,7 +82,22 @@
   }
   const CHEERS = ["Let's sort these samples!", 'Ready, scientist?', 'Time for some science!', 'Sort it, pour it, seal it!', 'You can do it!'];
   const SEALS = ['Tube complete!', 'Sealed it!', 'Perfect pour!', 'Super sorting!', 'Nice one!'];
-  const DIFFS = ['easy', 'medium', 'hard', 'genius'];
+  // Trickiness picks among several fair deals of the same size: the
+  // easiest, one from the middle, or the hardest. The board looks the same;
+  // the pour order gets trickier.
+  const TRICKS = [
+    { name: 'Gentle', pick: 0 },
+    { name: 'Normal', pick: 0.5 },
+    { name: 'Sneaky', pick: 1 },
+  ];
+  const NO_MODES = { giant: 0, minis: false, labels: false, mystery: false };
+  // One tap sets every setting. Hard adds one surprise mode from its pool.
+  const PRESETS = [
+    { id: 'easy', name: 'Easy', colors: 5, cap: 4, empties: 2, trick: 0, modes: {} },
+    { id: 'medium', name: 'Medium', colors: 8, cap: 4, empties: 2, trick: 1, modes: {} },
+    { id: 'hard', name: 'Hard', colors: 10, cap: 5, empties: 2, trick: 2, pool: [{ giant: 1 }, { labels: true }, { mystery: true }] },
+    { id: 'genius', name: 'Genius', colors: 12, cap: 5, empties: 2, trick: 2, modes: { labels: true, mystery: true } },
+  ];
   // Extra moves allowed for 3 stars, as a share of the robot's count.
   const STAR_LEEWAY = 0.125;
 
@@ -97,8 +112,13 @@
       best: {},
       sound: true,
       shapes: false,
-      custom: { colors: 6, cap: 4, empties: 2, difficulty: 'medium', modes: { giant: 0, minis: false, labels: false, mystery: false } },
+      custom: { colors: 8, cap: 4, empties: 2, trick: 1, modes: Object.assign({}, NO_MODES) },
     };
+  }
+
+  function trickOf(spec) {
+    if (spec.trick != null) return spec.trick;
+    return { easy: 0, medium: 1, hard: 2, genius: 2 }[spec.difficulty] ?? 1;
   }
 
   function load() {
@@ -118,6 +138,9 @@
             mystery: !!(data.custom && data.custom.mystery),
           };
         }
+        // Settings saved before trickiness had a challenge instead.
+        if (custom.trick == null) custom.trick = trickOf(data.custom || {});
+        delete custom.difficulty;
         delete custom.shape;
         delete custom.mystery;
         return Object.assign(base, data, { custom });
@@ -363,23 +386,133 @@
       note.textContent = 'One empty tube means more dead ends. Up to ' + max + ' colors fit in tubes this size.';
     }
     else note.textContent = 'Up to ' + max + ' colors.';
-    document.querySelectorAll('input[name="difficulty"]').forEach((r) => {
-      r.checked = r.value === c.difficulty;
+    document.querySelectorAll('input[name="trick"]').forEach((r) => {
+      r.checked = Number(r.value) === c.trick;
     });
     $('mysteryToggle').checked = m.mystery;
+    // A preset stays lit only while every setting still matches it.
+    const match = PRESETS.find((p) => presetMatches(p, c));
+    document.querySelectorAll('.preset').forEach((b) => b.setAttribute('aria-pressed', String(!!match && b.dataset.preset === match.id)));
+    $('customBadge').hidden = !!match;
+  }
+
+  function sameModes(a, b) {
+    const x = Core.normalizeModes(a);
+    const y = Core.normalizeModes(b);
+    return x.giant === y.giant && x.minis === y.minis && x.labels === y.labels && x.mystery === y.mystery;
+  }
+
+  function presetMatches(p, c) {
+    if (p.colors !== c.colors || p.cap !== c.cap || p.empties !== c.empties || p.trick !== c.trick) return false;
+    return p.pool ? p.pool.some((m) => sameModes(m, c.modes)) : sameModes(p.modes, c.modes);
+  }
+
+  function applyPreset(p) {
+    const c = saved.custom;
+    const before = JSON.stringify(customSnapshot());
+    let modes = p.modes;
+    if (p.pool) {
+      // Tapping Hard again swaps in a different surprise mode.
+      const others = p.pool.filter((m) => !sameModes(m, c.modes));
+      modes = others[Math.floor(Math.random() * others.length)];
+    }
+    Object.assign(c, { colors: p.colors, cap: p.cap, empties: p.empties, trick: p.trick, modes: Object.assign({}, NO_MODES, modes) });
+    clampCustom();
+    save();
+    const old = JSON.parse(before);
+    renderCustom(false);
+    flashChanges(old, customSnapshot());
+  }
+
+  // What each setting shows, to light up the ones a preset changed.
+  function customSnapshot() {
+    const c = saved.custom;
+    const m = Core.normalizeModes(c.modes);
+    return {
+      colorsOut: c.colors,
+      capOut: c.cap,
+      emptiesOut: c.empties,
+      trickGroup: c.trick,
+      modeGiant: m.giant,
+      modeMinis: m.minis,
+      modeLabels: m.labels,
+      mysteryToggle: m.mystery,
+    };
+  }
+
+  function flashChanges(before, after) {
+    if (reduceMotion) return;
+    Object.keys(after).forEach((id) => {
+      if (before[id] === after[id]) return;
+      const el = $(id).closest('.stepper, .setting-row, .toggle') || $(id);
+      el.classList.remove('flash');
+      void el.offsetWidth;
+      el.classList.add('flash');
+    });
+  }
+
+  // A tiny picture of the board a preset makes, drawn to scale.
+  function presetBoard(p) {
+    const tubes = p.colors + p.empties;
+    const step = 100 / tubes;
+    const tw = step * 0.62;
+    const unitH = 9;
+    let out = '';
+    for (let i = 0; i < tubes; i++) {
+      const x = i * step + (step - tw) / 2;
+      const h = p.cap * unitH + 3;
+      const y = 58 - h;
+      out += '<rect class="mini-glass" x="' + x.toFixed(2) + '" y="' + y + '" width="' + tw.toFixed(2) + '" height="' + h + '" rx="' + (tw / 2).toFixed(2) + '"/>';
+      if (i < p.colors) {
+        for (let k = 0; k < p.cap; k++) {
+          const color = PALETTE[(i * 5 + k * 7 + p.cap) % PALETTE.length];
+          const ly = 58 - 1.5 - (k + 1) * unitH;
+          out += '<rect x="' + x.toFixed(2) + '" y="' + ly.toFixed(2) + '" width="' + tw.toFixed(2) + '" height="' + (unitH + 0.3) + '" fill="' + color + '"/>';
+        }
+      }
+    }
+    return '<svg class="preset-board" viewBox="0 0 100 60" aria-hidden="true"><defs><clipPath id="mini-' + p.id + '">' +
+      out.match(/<rect class="mini-glass"[^>]*\/>/g).join('').replace(/class="mini-glass" /g, '') +
+      '</clipPath></defs><g clip-path="url(#mini-' + p.id + ')">' + out + '</g></svg>';
+  }
+
+  const MODE_ICONS = {
+    giant: '<rect x="2" y="1" width="5" height="14" rx="2.5"/><rect x="9" y="7" width="5" height="8" rx="2.5"/>',
+    labels: '<rect x="5" y="1" width="6" height="14" rx="3"/><rect x="3.5" y="6" width="9" height="4" rx="1" fill="#fff" stroke="currentColor" stroke-width="1"/>',
+    mystery: '<rect x="1" y="1" width="14" height="14" rx="4"/><path d="M6 6.2a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.3" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fff"/>',
+    surprise: '<rect x="1" y="1" width="14" height="14" rx="4"/><circle cx="5" cy="5" r="1.5" fill="#fff"/><circle cx="8" cy="8" r="1.5" fill="#fff"/><circle cx="11" cy="11" r="1.5" fill="#fff"/>',
+  };
+  const MODE_TITLES = { giant: 'Giant Tubes', labels: 'Labeled Tubes', mystery: 'Mystery Layers', surprise: 'One surprise mode' };
+
+  function buildPresets() {
+    $('presets').innerHTML = PRESETS.map((p) => {
+      const m = p.modes || {};
+      const icons = p.pool ? ['surprise'] : ['giant', 'labels', 'mystery'].filter((k) => m[k]);
+      return (
+        '<button class="preset" type="button" data-preset="' + p.id + '" aria-pressed="false">' + presetBoard(p) +
+        '<span class="preset-name">' + p.name + '</span><span class="preset-icons">' +
+        icons.map((k) => '<svg viewBox="0 0 16 16" role="img" aria-label="' + MODE_TITLES[k] + '"><title>' + MODE_TITLES[k] + '</title>' + MODE_ICONS[k] + '</svg>').join('') +
+        '</span></button>'
+      );
+    }).join('');
+    document.querySelectorAll('.preset').forEach((b) =>
+      b.addEventListener('click', () => {
+        applyPreset(PRESETS.find((p) => p.id === b.dataset.preset));
+        Sound.tap();
+      })
+    );
   }
 
   /*
-   * Lab codes: two digits of colors, then height, empty tubes, challenge,
-   * mystery, giant tubes (0-2), and mini tubes + 2 x labeled tubes, then the
-   * seed, like 06422000-1234. Older codes are six digits (classic) or seven
-   * (the last digit was the old board shape; only 0, the classic board,
-   * still exists).
+   * Lab codes: two digits of colors, then height, empty tubes, trickiness
+   * (0-2), mystery, giant tubes (0-2), and mini tubes + 2 x labeled tubes,
+   * then the seed, like 08421000-1234. Codes from before trickiness made
+   * different puzzles, so they're turned away rather than misread.
    */
   function customCode(spec) {
     const m = Core.normalizeModes(spec.modes);
     return (
-      String(spec.colors).padStart(2, '0') + spec.cap + spec.empties + DIFFS.indexOf(spec.difficulty) +
+      String(spec.colors).padStart(2, '0') + spec.cap + spec.empties + trickOf(spec) +
       (m.mystery ? 1 : 0) + m.giant + ((m.minis ? 1 : 0) + (m.labels ? 2 : 0)) + '-' + spec.seed
     );
   }
@@ -388,22 +521,22 @@
     const match = /^\s*(\d{6,8})\s*-?\s*(\d{1,6})\s*$/.exec(text || '');
     if (!match) return null;
     const d = match[1];
-    if (d.length === 7 && d[6] !== '0') return { outdated: true };
-    const extra = d.length === 8 ? +d[7] : 0;
+    if (d.length < 8) return { outdated: true };
+    const extra = +d[7];
     const spec = {
       colors: +d.slice(0, 2),
       cap: +d[2],
       empties: +d[3],
-      difficulty: DIFFS[+d[4]],
+      trick: +d[4],
       modes: Core.normalizeModes({
         mystery: d[5] === '1',
-        giant: d.length === 8 ? +d[6] : 0,
+        giant: +d[6],
         minis: (extra & 1) === 1,
         labels: (extra & 2) === 2,
       }),
       seed: +match[2],
     };
-    if (!spec.difficulty || !/[01]/.test(d[5]) || (d.length === 8 && (+d[6] > 2 || extra > 3))) return null;
+    if (spec.trick > 2 || !/[01]/.test(d[5]) || +d[6] > 2 || extra > 3) return null;
     if (spec.cap < 3 || spec.cap > 6 || spec.empties < Core.minEmptiesFor(spec.modes) || spec.empties > 3) return null;
     if (spec.colors < Core.minColorsFor(spec.modes) || spec.colors > Core.maxColorsFor(spec.cap, spec.empties, spec.modes)) return null;
     return spec;
@@ -526,7 +659,7 @@
         cap: spec.cap,
         empties: spec.empties,
         modes: spec.modes,
-        difficulty: spec.difficulty,
+        pick: TRICKS[trickOf(spec)].pick,
         seed: 'custom:' + spec.seed,
       });
     } catch (err) {
@@ -597,7 +730,7 @@
     el.type = 'button';
     el.className = 'tube';
     el.innerHTML =
-      '<span class="glass"><span class="liquid"></span><span class="tag"><i></i></span></span><span class="lip"></span><span class="stopper"></span>';
+      '<span class="glass"><span class="liquid"></span></span><span class="tag"><i></i></span><span class="lip"></span><span class="stopper"></span>';
     el.addEventListener('click', () => onTube(i));
     return el;
   }
@@ -1759,12 +1892,14 @@
         })
       );
     });
-    document.querySelectorAll('input[name="difficulty"]').forEach((r) =>
+    document.querySelectorAll('input[name="trick"]').forEach((r) =>
       r.addEventListener('change', () => {
-        saved.custom.difficulty = r.value;
+        saved.custom.trick = Number(r.value);
         save();
+        renderCustom(false);
       })
     );
+    buildPresets();
     $('mysteryToggle').addEventListener('change', (e) => setMode({ mystery: e.target.checked }));
     $('mixBtn').addEventListener('click', () => startCustom(newCustomSpec()));
     $('codeForm').addEventListener('submit', (e) => {
@@ -1774,8 +1909,8 @@
       if (!spec || spec.outdated) {
         err.hidden = false;
         err.textContent = spec
-          ? 'That code is from an older version of Color Lab, and its board no longer exists.'
-          : 'That code does not look right. It should look like 06422000-1234.';
+          ? "That code is from an older version of Color Lab and doesn't work anymore."
+          : 'That code does not look right. It should look like 08421000-1234.';
         return;
       }
       err.hidden = true;

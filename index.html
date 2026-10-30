@@ -95,6 +95,14 @@
       <h2>Mix your own</h2>
     </header>
     <div class="custom-card">
+      <div class="preset-panel">
+        <span class="panel-label">Presets</span>
+        <div id="presets" class="presets"></div>
+      </div>
+      <div class="settings-head">
+        <span class="panel-label">Settings</span>
+        <span id="customBadge" class="custom-badge" hidden>Custom</span>
+      </div>
       <div class="stepper" data-key="colors">
         <span class="step-label">Colors</span>
         <button class="step-btn" type="button" data-step="-1" aria-label="Fewer colors">−</button>
@@ -114,13 +122,14 @@
         <button class="step-btn" type="button" data-step="1" aria-label="More empty tubes">+</button>
       </div>
       <p id="sizeNote" class="note" hidden></p>
-      <fieldset class="chips">
-        <legend class="step-label">Challenge</legend>
-        <label><input type="radio" name="difficulty" value="easy"><span>Easy</span></label>
-        <label><input type="radio" name="difficulty" value="medium" checked><span>Medium</span></label>
-        <label><input type="radio" name="difficulty" value="hard"><span>Hard</span></label>
-        <label><input type="radio" name="difficulty" value="genius"><span>Genius</span></label>
-      </fieldset>
+      <div class="setting-row">
+        <span class="step-label" id="trickLabel">Trickiness</span>
+        <div id="trickGroup" class="trick" role="radiogroup" aria-labelledby="trickLabel">
+          <label><input type="radio" name="trick" value="0"><span><b><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0 9.9 6.1 16 8 9.9 9.9 8 16 6.1 9.9 0 8 6.1 6.1Z"/></svg></b><small>Gentle</small></span></label>
+          <label><input type="radio" name="trick" value="1" checked><span><b><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0 9.9 6.1 16 8 9.9 9.9 8 16 6.1 9.9 0 8 6.1 6.1Z"/></svg><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0 9.9 6.1 16 8 9.9 9.9 8 16 6.1 9.9 0 8 6.1 6.1Z"/></svg></b><small>Normal</small></span></label>
+          <label><input type="radio" name="trick" value="2"><span><b><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0 9.9 6.1 16 8 9.9 9.9 8 16 6.1 9.9 0 8 6.1 6.1Z"/></svg><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0 9.9 6.1 16 8 9.9 9.9 8 16 6.1 9.9 0 8 6.1 6.1Z"/></svg><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0 9.9 6.1 16 8 9.9 9.9 8 16 6.1 9.9 0 8 6.1 6.1Z"/></svg></b><small>Sneaky</small></span></label>
+        </div>
+      </div>
       <fieldset class="modes">
         <legend class="step-label">Modes <small>Pick any, or none for the classic game.</small></legend>
         <div class="mode-row">
@@ -138,7 +147,7 @@
       <form id="codeForm" class="code-form">
         <label for="codeInput">Have a lab code?</label>
         <div class="code-row">
-          <input id="codeInput" inputmode="numeric" autocomplete="off" placeholder="06422000-1234" maxlength="13">
+          <input id="codeInput" inputmode="numeric" autocomplete="off" placeholder="08421000-1234" maxlength="13">
           <button class="small-btn" type="submit">Go</button>
         </div>
         <p id="codeError" class="note bad" hidden></p>
