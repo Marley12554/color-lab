@@ -273,7 +273,8 @@ test('Genius picks the hardest fair puzzle, not a trap-filled one', () => {
     const p = C.generate({ colors: 12, cap: 5, empties: 2, difficulty: 'genius', seed });
     assert.ok(p.fair, `genius ${seed}: ${(p.deadEnds * 100).toFixed(0)}% dead ends`);
     const board = { caps: p.caps, units: p.units };
-    const again = C.deadEndShare(p.tubes, board, p.solution);
+    const again = C.deadEndShare(p.tubes, board, p.fairRoute);
+    assert.ok(p.par <= p.fairRoute.length, "the robot's record is no longer than the checked route");
     assert.ok(again.share <= 0.1 && again.worst <= 0.5);
   }
 });

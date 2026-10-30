@@ -191,7 +191,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=50ef4af386');
+        worker = new Worker('js/worker.js?v=1bb348817a');
       }
     } catch (e) {
       worker = null;
@@ -1748,8 +1748,8 @@
     if (moves < par) note = "You beat the robot's record of " + par + ' moves!';
     else if (moves === par) note = "You matched the robot's record!";
     else if (stars === 3) note = "Robot's record: " + par + ' moves. Can you match it?';
-    else if (game.helped && moves <= allowed) note = 'Finish without hints or an extra tube for 3 stars.';
-    else note = 'Finish in ' + allowed + ' moves or fewer for 3 stars.';
+    else if (game.helped && moves <= allowed) note = "Robot's record: " + par + ' moves. 3 stars: no hints or extra tube.';
+    else note = "Robot's record: " + par + ' moves. 3 stars: ' + allowed + ' moves or fewer.';
     $('winNote').textContent = note;
     const code = $('winCode');
     code.hidden = isLevel;
