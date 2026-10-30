@@ -663,6 +663,14 @@ input:focus-visible,
   fill: currentColor;
 }
 
+.mode-icon {
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  fill: var(--ink-soft);
+}
+
 .settings-head {
   display: flex;
   align-items: center;

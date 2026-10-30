@@ -189,7 +189,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=25f8b251fa');
+        worker = new Worker('js/worker.js?v=61ae11687e');
       }
     } catch (e) {
       worker = null;
@@ -481,10 +481,20 @@
   const MODE_ICONS = {
     giant: '<rect x="2" y="1" width="5" height="14" rx="2.5"/><rect x="9" y="7" width="5" height="8" rx="2.5"/>',
     labels: '<path d="M1.5 2.5a1 1 0 0 1 1-1h6a1 1 0 0 1 .7.3l5 5a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4 0l-5-5a1 1 0 0 1-.3-.7z"/><circle cx="5" cy="5" r="1.6" fill="#fff"/>',
+    minis: '<rect x="1.5" y="3" width="4" height="12" rx="2"/><rect x="6.5" y="9" width="4" height="6" rx="2"/><rect x="11.5" y="9" width="4" height="6" rx="2"/>',
     mystery: '<rect x="1" y="1" width="14" height="14" rx="4"/><path d="M6 6.2a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.3" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fff"/>',
     surprise: '<rect x="1" y="1" width="14" height="14" rx="4"/><circle cx="5" cy="5" r="1.5" fill="#fff"/><circle cx="8" cy="8" r="1.5" fill="#fff"/><circle cx="11" cy="11" r="1.5" fill="#fff"/>',
   };
-  const MODE_TITLES = { giant: 'Giant Tubes', labels: 'Labeled Tubes', mystery: 'Mystery Layers', surprise: 'One surprise mode' };
+  const MODE_TITLES = { giant: 'Giant Tubes', minis: 'Mini Tubes', labels: 'Labeled Tubes', mystery: 'Mystery Layers', surprise: 'One surprise mode' };
+
+  // The same icons the preset cards use, in front of each mode's name.
+  function addModeIcons() {
+    const ids = { modeGiant: 'giant', modeMinis: 'minis', modeLabels: 'labels', mysteryToggle: 'mystery' };
+    Object.entries(ids).forEach(([id, k]) => {
+      const name = $(id).closest('label').querySelector('span');
+      name.insertAdjacentHTML('afterbegin', '<svg class="mode-icon" viewBox="0 0 16 16" aria-hidden="true">' + MODE_ICONS[k] + '</svg>');
+    });
+  }
 
   function buildPresets() {
     $('presets').innerHTML = PRESETS.map((p) => {
@@ -1902,6 +1912,7 @@
       })
     );
     buildPresets();
+    addModeIcons();
     $('mysteryToggle').addEventListener('change', (e) => setMode({ mystery: e.target.checked }));
     $('mixBtn').addEventListener('click', () => startCustom(newCustomSpec()));
     $('codeForm').addEventListener('submit', (e) => {
