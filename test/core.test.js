@@ -95,7 +95,7 @@ test('the solver agrees with brute force on small puzzles', () => {
   assert.ok(solvable > 50 && unsolvable > 20, `${solvable} solvable, ${unsolvable} not`);
 });
 
-const MODE_SETS = ['g1', 'g2', 'mini', 'label', 'g1 label', 'mini label', 'g1 mini'];
+const MODE_SETS = ['g1', 'g2', 'mini', 'label', 'g1 label', 'g2 label', 'mini label'];
 
 test('the solver agrees with brute force in every mode', () => {
   for (const text of MODE_SETS) {
@@ -107,7 +107,7 @@ test('the solver agrees with brute force in every mode', () => {
       // Kept small so plain brute force stays quick.
       const units = 3;
       const colors = C.minColorsFor(modes) + (modes.giant === 2 ? 0 : rng.int(2));
-      const tubes = C.deal(colors, units, 2, rng, modes);
+      const tubes = C.deal(colors, units, Math.max(2, C.minEmptiesFor(modes)), rng, modes);
       const board = tubes.board;
       const plain = tubes.slice();
       const shortest = bruteForce(plain, board);
@@ -216,12 +216,17 @@ test('every mode generates fair puzzles where the mode matters', () => {
     const modes = C.parseModes(text);
     for (const units of [4, 6]) {
       const colors = Math.max(C.minColorsFor(modes), 7);
-      const p = C.generate({ colors, cap: units, empties: 2, modes, seed: `mode-${text}-${units}` });
+      const empties = Math.max(2, C.minEmptiesFor(modes));
+      const p = C.generate({ colors, cap: units, empties, modes, seed: `mode-${text}-${units}` });
       assert.ok(p, `no ${text} puzzle at height ${units}`);
-      const board = { caps: p.caps, labels: p.labels, units };
+      const board = { caps: p.caps, labels: p.labels, big: p.big, units };
       assert.equal(p.caps.length, p.tubes.length);
       p.tubes.forEach((t, i) => assert.ok(t.length <= p.caps[i], `${text} tube ${i} overfilled`));
-      for (let c = 0; c < colors; c++) assert.equal(p.tubes.flat().filter((x) => x === c).length, units);
+      assert.equal(p.big.length, modes.giant, 'one big color per giant tube');
+      for (let c = 0; c < colors; c++) {
+        const want = p.big.includes(c) ? units * 2 : units;
+        assert.equal(p.tubes.flat().filter((x) => x === c).length, want);
+      }
       const end = replay(p.tubes, board, p.solution);
       assert.ok(C.isSolved(end, board), `${text} height ${units}`);
       assert.ok(p.fair, `${text} height ${units}: ${(p.deadEnds * 100).toFixed(0)}% dead ends`);
@@ -230,6 +235,11 @@ test('every mode generates fair puzzles where the mode matters', () => {
         const giants = p.caps.map((c, i) => i).filter((i) => p.caps[i] === units * 2);
         assert.equal(giants.length, modes.giant);
         giants.forEach((i) => assert.equal(p.tubes[i].length, units * 2, 'giant tubes start packed'));
+        // Each big color ends up filling a giant tube.
+        p.big.forEach((c) => assert.ok(giants.some((i) => end[i].length === units * 2 && end[i].every((x) => x === c))));
+        // Giant tubes no longer bring extra room: free room is the empty-tube setting.
+        const room = p.caps.reduce((a, c) => a + c, 0) - p.tubes.flat().length;
+        if (!modes.minis && !modes.labels) assert.equal(room, empties * units, `${text}: room matches the empty-tube setting`);
       }
       if (modes.minis) assert.ok(p.caps.some((c) => c < units));
       if (modes.labels) {
@@ -251,7 +261,7 @@ test('the first 80 campaign levels generate and can be finished', () => {
     }
     const p = C.generateLevel(level);
     assert.ok(p && p.tubes, `level ${level}`);
-    const board = { caps: p.caps, labels: p.labels, units: p.units };
+    const board = { caps: p.caps, labels: p.labels, big: p.big, units: p.units };
     assert.ok(C.isSolved(replay(p.tubes, board, p.solution), board), `level ${level}`);
     assert.equal(p.par, p.solution.length);
     if (!spec.tutorial) assert.ok(p.fair, `level ${level} has too many dead ends (${(p.deadEnds * 100).toFixed(0)}%)`);

@@ -61,8 +61,10 @@
     return { color: c, count: k };
   }
 
-  // A board is a number (every tube that tall) or { caps, units, labels }.
-  // `labels[i]` is the only color tube i accepts, or -1 for any color.
+  // A board is a number (every tube that tall) or { caps, units, labels,
+  // big }. `labels[i]` is the only color tube i accepts, or -1 for any
+  // color. `big` lists the colors that have twice as many layers (one per
+  // giant tube); every other color has `units` layers.
   function capAt(board, i) {
     return typeof board === 'number' ? board : board.caps[i];
   }
@@ -83,10 +85,19 @@
     return Array.from({ length: count }, (_, i) => labelAt(board, i));
   }
 
-  // A tube is finished (and capped) when it holds all of one color.
-  function isSealed(tube, units) {
-    if (tube.length !== units) return false;
-    for (let i = 1; i < units; i++) if (tube[i] !== tube[0]) return false;
+  // How many layers color c has on this board.
+  function amountOf(board, c) {
+    const units = unitsOf(board);
+    return typeof board !== 'number' && board.big && board.big.includes(c) ? units * 2 : units;
+  }
+
+  // A tube is finished (and capped) when it holds all of one color. The
+  // second argument is the board, or just the layers per color.
+  function isSealed(tube, board) {
+    if (!tube.length) return false;
+    const need = amountOf(board, tube[0]);
+    if (tube.length !== need) return false;
+    for (let i = 1; i < need; i++) if (tube[i] !== tube[0]) return false;
     return true;
   }
 
@@ -95,10 +106,9 @@
     if (from === to) return 'same';
     const src = tubes[from];
     const dst = tubes[to];
-    const units = unitsOf(board);
     if (!src.length) return 'empty';
-    if (isSealed(src, units)) return 'sealed';
-    if (isSealed(dst, units)) return 'sealed';
+    if (isSealed(src, board)) return 'sealed';
+    if (isSealed(dst, board)) return 'sealed';
     if (dst.length >= capAt(board, to)) return 'full';
     const label = labelAt(board, to);
     if (label >= 0 && src[src.length - 1] !== label) return 'label';
@@ -121,8 +131,7 @@
   // Every tube is empty or one finished color, and every labeled tube holds
   // its finished color.
   function isSolved(tubes, board) {
-    const units = unitsOf(board);
-    return tubes.every((t, i) => (t.length === 0 && labelAt(board, i) < 0) || isSealed(t, units));
+    return tubes.every((t, i) => (t.length === 0 && labelAt(board, i) < 0) || isSealed(t, board));
   }
 
   // True when some pour would change the picture. Pouring a one-color tube
@@ -165,14 +174,16 @@
     return k;
   }
 
-  function sSealed(s, units) {
-    return s.length === units && sRun(s) === units;
+  // `sb.need[code]` is how many layers the color with that character has.
+  function sSealed(s, sb) {
+    const n = s.length;
+    return n > 0 && n === sb.need[s.charCodeAt(0)] && sRun(s) === n;
   }
 
   function sSolved(state, sb) {
     for (let i = 0; i < state.length; i++) {
       const s = state[i];
-      if (s.length ? !sSealed(s, sb.units) : sb.labels[i] >= 0) return false;
+      if (s.length ? !sSealed(s, sb) : sb.labels[i] >= 0) return false;
     }
     return true;
   }
@@ -185,7 +196,10 @@
     const labels = labelsFor(board, count).map((l) => (l >= 0 ? l + BASE : -1));
     const tags = caps.map((c, i) => c + ':' + labels[i] + ':');
     const same = tags.every((t) => t === tags[0]);
-    return { caps, labels, units: unitsOf(board), tags: same ? null : tags };
+    const units = unitsOf(board);
+    const need = [];
+    for (let c = 0; c < 26; c++) need[c + BASE] = amountOf(board, c);
+    return { caps, labels, units, need, tags: same ? null : tags };
   }
 
   // Tubes of the same height are interchangeable, so states compare by their
@@ -229,7 +243,7 @@
     }
     for (let f = 0; f < state.length; f++) {
       const s = state[f];
-      if (!s.length || sSealed(s, units)) continue;
+      if (!s.length || sSealed(s, sb)) continue;
       const run = sRun(s);
       const uniform = run === s.length;
       const c = s.charCodeAt(s.length - 1);
@@ -241,7 +255,7 @@
           if (firstEmpty[kind(t)] !== t || (uniform && kind(t) === kind(f))) continue;
           out.push(f, t, Math.min(run, caps[t]));
         } else {
-          if (d.length >= caps[t] || d.charCodeAt(d.length - 1) !== c || sSealed(d, units)) continue;
+          if (d.length >= caps[t] || d.charCodeAt(d.length - 1) !== c || sSealed(d, sb)) continue;
           out.push(f, t, Math.min(run, caps[t] - d.length));
         }
       }
@@ -411,7 +425,7 @@
         if (seen.has(key)) continue;
         let w;
         if (!state[t].length) w = 1;
-        else if (sSealed(next[t], sb.units)) w = 12;
+        else if (sSealed(next[t], sb)) w = 12;
         else if (k === sRun(state[f])) w = 4;
         else w = 0.7;
         nexts.push(next);
@@ -517,7 +531,7 @@
         if (Number.isNaN(cost)) continue;
         best = Math.min(best, cost);
         spreadMax = Math.max(spreadMax, cost);
-        const rank = sSealed(next[t], sb.units) ? 3 : here[t].length && k === sRun(here[f]) ? 2 : here[t].length ? 1 : 0;
+        const rank = sSealed(next[t], sb) ? 3 : here[t].length && k === sRun(here[f]) ? 2 : here[t].length ? 1 : 0;
         if (rank > obviousRank) {
           obviousRank = rank;
           obviousBest = cost;
@@ -558,6 +572,7 @@
       const bigger = {
         caps: capsFor(board, current.length).concat([units]),
         labels: labelsFor(board, current.length).concat([-1]),
+        big: typeof board === 'number' ? [] : board.big || [],
         units,
       };
       extraTube = solve(current.concat([[]]), bigger, { maxNodes }).status !== 'unsolvable';
@@ -592,13 +607,16 @@
   /*
    * Modes change the rules of a board, and they stack:
    * - giant (0, 1, or 2): giant tubes twice as tall, packed full of mixed
-   *   colors at the start. One stands in the middle, two stand at the ends.
+   *   colors at the start. For each giant tube one color has twice as many
+   *   layers, and it finishes by filling a giant tube all the way up.
    * - minis: the spare room comes as small tubes that hold 2 or 3 layers.
    *   A small tube can never hold a finished color, so it must end empty.
    * - labels: one to three empty tubes that each take only one color, and
    *   must end up holding it.
    * - mystery: layers stay hidden until uncovered (the game handles this).
-   * With no modes it is the classic board.
+   * With no modes it is the classic board. Giant tubes and mini tubes are
+   * not offered together yet: digging a packed giant tube out into small
+   * tubes alone makes boards that take far too long to generate.
    */
   const NO_MODES = { giant: 0, minis: false, labels: false, mystery: false };
 
@@ -621,11 +639,19 @@
     return colors <= 4 ? 1 : colors <= 8 ? 2 : 3;
   }
 
+  // The fewest empty tubes a board can have. A giant tube starts packed, and
+  // its layers have to go somewhere before its big color can fill it, so
+  // each giant tube needs one more empty tube than the board would.
+  function minEmptiesFor(modes) {
+    const m = normalizeModes(modes);
+    return m.giant ? m.giant + 1 : 1;
+  }
+
   // The fewest colors that make every chosen mode matter.
   function minColorsFor(modes) {
     const m = normalizeModes(modes);
     let min = 2;
-    if (m.giant) min = Math.max(min, 2 * m.giant + 2);
+    if (m.giant) min = Math.max(min, m.giant + 2);
     if (m.labels) min = Math.max(min, 3);
     return min;
   }
@@ -652,24 +678,23 @@
       fills.push(fill);
       labels.push(label == null ? -1 : label);
     };
-    for (let i = 0; i < colors - 2 * g; i++) add(units, units);
+    // One big color per giant tube: twice the layers, finishing in a giant
+    // tube. Labels go on other colors.
+    const order0 = shuffle(Array.from({ length: colors }, (_, i) => i), rng);
+    const big = order0.slice(0, g).sort((a, b) => a - b);
+    // The giant tubes start packed, so the regular tubes hold the rest:
+    // one tube's worth per normal color.
+    for (let i = 0; i < colors - g; i++) add(units, units);
     // `empties` is the board's whole budget of free room. Labeled tubes are
-    // room too, so they count against it.
-    const L = m.labels ? 1 + rng.int(Math.min(labelCount(colors), Math.max(1, empties))) : 0;
-    if (L) {
-      const chosen = shuffle(Array.from({ length: colors }, (_, i) => i), rng).slice(0, L);
-      chosen.sort((a, b) => a - b).forEach((c) => add(units, 0, c));
-    }
-    // Free regular tubes: what's left of the budget, but never fewer than the
-    // rules need. Each giant tube takes the place of two full tubes yet
-    // finishes only one color, so the board needs a free tube for every
-    // giant beyond what labeled tubes make up for.
-    // Labeled tubes take one color only, so there is always at least one
-    // regular free tube (or the small tubes standing in for it). Giant tubes
-    // also need a spare finishing tube to work with, unless small tubes
-    // provide the working room; without it almost no deal can be finished.
-    const need = Math.max(0, g - L);
-    let free = Math.max(empties - L, need && !m.minis ? need + 1 : need, 1);
+    // room too, so they count against it, leaving room for the one regular
+    // free tube every board keeps.
+    const L = m.labels ? 1 + rng.int(Math.min(labelCount(colors - g), Math.max(1, empties - 1))) : 0;
+    if (L) order0.slice(g, g + L).sort((a, b) => a - b).forEach((c) => add(units, 0, c));
+    // Free regular tubes: what's left of the budget. Labeled tubes take one
+    // color only, so there is always at least one regular free tube (or the
+    // small tubes standing in for it).
+    const need = 0;
+    let free = Math.max(empties - L, 1);
     if (m.minis) {
       // Keep only the regular free tubes some color must finish in; the rest
       // of the budget comes as small tubes (always at least two of them).
@@ -690,7 +715,7 @@
     // Shuffle where the regular-height and small tubes stand.
     const order = shuffle(caps.map((_, i) => i), rng);
     const pick = (list) => order.map((i) => list[i]);
-    const board = { caps: pick(caps), units, labels: pick(labels), fills: pick(fills) };
+    const board = { caps: pick(caps), units, labels: pick(labels), fills: pick(fills), big };
 
     // Giant tubes go last, placed by the layout.
     const at = board.caps.length;
@@ -729,7 +754,7 @@
   function deal(colors, cap, empties, rng, modes) {
     const board = boardFor(modes, colors, cap, empties, rng);
     const pool = [];
-    for (let c = 0; c < colors; c++) for (let k = 0; k < cap; k++) pool.push(c);
+    for (let c = 0; c < colors; c++) for (let k = 0; k < amountOf(board, c); k++) pool.push(c);
     shuffle(pool, rng);
     let at = 0;
     const tubes = board.fills.map((n) => pool.slice(at, (at += n)));
@@ -755,12 +780,13 @@
       const without = {
         caps: board.caps.filter((_, i) => keep[i]),
         labels: board.labels.filter((_, i) => keep[i]),
+        big: board.big,
         units: board.units,
       };
       if (solve(tubes.filter((_, i) => keep[i]), without, { maxNodes: 20000 }).status === 'solved') return false;
     }
     if (m.labels) {
-      const plain = { caps: board.caps, units: board.units };
+      const plain = { caps: board.caps, big: board.big, units: board.units };
       const r = solve(tubes, plain, { maxNodes: 20000 });
       if (r.status === 'solved') {
         const state = cloneTubes(tubes);
@@ -776,10 +802,11 @@
   }
 
   // Deals boil down to dull when a tube starts nearly done.
-  function dullDeal(tubes, units) {
+  function dullDeal(tubes, board) {
+    const units = unitsOf(board);
     for (const t of tubes) {
       if (!t.length) continue;
-      if (isSealed(t, units)) return true;
+      if (isSealed(t, board)) return true;
       if (units >= 4 && topRun(t).count >= units - 1) return true;
     }
     return false;
@@ -847,7 +874,7 @@
       const dealt = deal(colors, cap, empties, rng, modes);
       const board = dealt.board;
       const tubes = dealt.slice();
-      if (dullDeal(tubes, cap)) continue;
+      if (dullDeal(tubes, board)) continue;
       deals++;
       const start = encode(tubes);
       const result = solve(start, board, { maxNodes, weight: 2 });
@@ -890,6 +917,7 @@
       units: cap,
       caps: chosen.board.caps,
       labels: chosen.board.labels,
+      big: chosen.board.big || [],
       featured: chosen.board.featured,
       modes,
       mystery: modes.mystery,
@@ -941,7 +969,7 @@
     ] },
     { name: 'Orbit Lab', levels: [
       [8, 5, 2, 0.4], [9, 5, 2, 0.5], [10, 4, 2, 0.6], [7, 4, 2, 0.6, 'm'], [6, 6, 2, 0.5],
-      [8, 4, 2, 0.5, 'g2'], [6, 4, 1, 0.7], [9, 5, 2, 0.8], [7, 6, 2, 0.6], [11, 4, 2, 0.6],
+      [8, 4, 3, 0.5, 'g2'], [6, 4, 1, 0.7], [9, 5, 2, 0.8], [7, 6, 2, 0.6], [11, 4, 2, 0.6],
     ] },
     { name: 'Nebula Lab', levels: [
       [9, 6, 2, 0.4], [10, 5, 2, 0.6], [8, 4, 2, 0.7, 'm'], [11, 4, 2, 0.7], [8, 6, 2, 0.6],
@@ -949,7 +977,7 @@
     ] },
     { name: 'Galaxy Lab', levels: [
       [12, 4, 2, 0.7], [9, 6, 2, 0.6], [11, 5, 2, 0.8], [9, 5, 2, 0.6, 'm'], [12, 5, 2, 0.6],
-      [9, 4, 2, 0.6, 'mini m'], [11, 6, 2, 0.6], [12, 4, 2, 0.9], [10, 5, 2, 0.7, 'g2 mini'], [12, 5, 2, 0.9],
+      [9, 4, 2, 0.6, 'mini m'], [11, 6, 2, 0.6], [12, 4, 2, 0.9], [10, 5, 3, 0.7, 'g2 label'], [12, 5, 2, 0.9],
     ] },
   ];
 
@@ -957,8 +985,8 @@
   const ENDLESS_SIZES = [
     [12, 4, 2], [12, 5, 2], [11, 6, 2], [10, 6, 2], [11, 5, 2],
     [6, 4, 1], [11, 6, 2], [10, 5, 2, 'm'], [8, 4, 2, 'm'],
-    [9, 4, 2, 'g1'], [7, 6, 2, 'g1'], [11, 5, 2, 'g2'], [12, 4, 2, 'label'],
-    [10, 6, 2, 'mini'], [8, 5, 2, 'g1 label'], [8, 4, 2, 'mini label'],
+    [9, 4, 2, 'g1'], [7, 6, 2, 'g1'], [11, 5, 3, 'g2'], [12, 4, 2, 'label'],
+    [9, 5, 2, 'mini'], [8, 5, 2, 'g1 label'], [8, 4, 2, 'mini label'],
   ];
   const ENDLESS_NAMES = ['Star Lab', 'Moon Lab', 'Meteor Lab', 'Planet Lab', 'Quasar Lab', 'Aurora Lab'];
 
@@ -1064,6 +1092,7 @@
     parseModes,
     modesMatter,
     minColorsFor,
+    minEmptiesFor,
     rate,
     generate,
     labOf,

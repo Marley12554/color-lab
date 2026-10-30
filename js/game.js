@@ -63,7 +63,7 @@
   const MODE_INTROS = [
     ['labels', 'Labeled tubes! Each one only takes its own color.'],
     ['minis', 'Mini tubes! They hold just a little and must end up empty.'],
-    ['giant', 'Giant tubes! They start packed with mixed colors. Dig them out!'],
+    ['giant', 'Giant tubes! One color has twice as many layers. Fill a giant tube all the way with it!'],
     ['mystery', 'Mystery layers! Gray layers show their color when you uncover them.'],
   ];
 
@@ -317,23 +317,25 @@
     const c = saved.custom;
     c.modes = Core.normalizeModes(c.modes);
     c.cap = Math.min(6, Math.max(3, c.cap));
-    c.empties = Math.min(3, Math.max(1, c.empties));
+    const minEmpties = Core.minEmptiesFor(c.modes);
+    const emptiesRaised = c.empties < minEmpties;
+    c.empties = Math.min(3, Math.max(minEmpties, c.empties));
     const max = Core.maxColorsFor(c.cap, c.empties, c.modes);
     const min = Core.minColorsFor(c.modes);
-    const clamped = c.colors > max || c.colors < min;
+    const clamped = c.colors > max || c.colors < min || emptiesRaised;
     c.colors = Math.min(max, Math.max(min, c.colors));
-    return { max, min, clamped };
+    return { max, min, minEmpties, clamped };
   }
 
   function renderCustom(clampedNow) {
     const c = saved.custom;
-    const { max, min } = clampCustom();
+    const { max, min, minEmpties } = clampCustom();
     const m = c.modes;
     const plain = !Core.hasBoardModes(m);
     $('colorsOut').textContent = c.colors;
     $('capOut').textContent = c.cap;
     $('emptiesOut').textContent = c.empties;
-    const limits = { colors: [min, max], cap: [3, 6], empties: [1, 3] };
+    const limits = { colors: [min, max], cap: [3, 6], empties: [minEmpties, 3] };
     document.querySelectorAll('.stepper').forEach((row) => {
       const key = row.dataset.key;
       row.querySelector('[data-step="-1"]').disabled = c[key] <= limits[key][0];
@@ -347,10 +349,15 @@
     $('modeMinis').checked = m.minis;
     $('modeLabels').checked = m.labels;
     const note = $('sizeNote');
-    // Explain a limit only when it is the thing stopping the + button.
+    // Explain a limit only when it is the thing stopping a button.
     const pairCap = m.minis && m.labels && c.colors >= max;
-    note.hidden = !((plain && c.empties === 1) || pairCap || clampedNow);
-    if (pairCap) note.textContent = 'With Mini Tubes and Labeled Tubes both on, ' + max + ' colors is the most.';
+    const giantFloor = m.giant > 0 && c.empties === minEmpties;
+    note.hidden = !((plain && c.empties === 1) || pairCap || giantFloor || clampedNow);
+    if (giantFloor) {
+      note.textContent =
+        (m.giant === 2 ? '2 Giant Tubes need' : 'A Giant Tube needs') + ' at least ' + minEmpties +
+        ' empty tubes, to dig the mixed colors out of ' + (m.giant === 2 ? 'them.' : 'it.');
+    } else if (pairCap) note.textContent = 'With Mini Tubes and Labeled Tubes both on, ' + max + ' colors is the most.';
     else if (!plain && clampedNow) note.textContent = 'These modes need ' + min + ' to ' + max + ' colors.';
     else if (plain && c.empties === 1) {
       note.textContent = 'One empty tube means more dead ends. Up to ' + max + ' colors fit in tubes this size.';
@@ -397,7 +404,7 @@
       seed: +match[2],
     };
     if (!spec.difficulty || !/[01]/.test(d[5]) || (d.length === 8 && (+d[6] > 2 || extra > 3))) return null;
-    if (spec.cap < 3 || spec.cap > 6 || spec.empties < 1 || spec.empties > 3) return null;
+    if (spec.cap < 3 || spec.cap > 6 || spec.empties < Core.minEmptiesFor(spec.modes) || spec.empties > 3) return null;
     if (spec.colors < Core.minColorsFor(spec.modes) || spec.colors > Core.maxColorsFor(spec.cap, spec.empties, spec.modes)) return null;
     return spec;
   }
@@ -554,6 +561,7 @@
     game.board = {
       caps: (p.caps || p.tubes.map(() => units)).slice(),
       labels: p.tubes.map((_, i) => (p.labels && p.labels[i] != null ? p.labels[i] : -1)),
+      big: (p.big || []).slice(),
       units,
     };
     game.tubes = Core.cloneTubes(p.tubes);
@@ -721,7 +729,7 @@
     const label = game.board.labels ? game.board.labels[i] : -1;
     const name = 'Tube ' + (i + 1) + (label >= 0 ? ', takes only ' + nameOf(label) : '');
     if (!t.length) return name + ', empty';
-    if (Core.isSealed(t, game.board.units)) return name + ', finished, all ' + nameOf(t[0]);
+    if (Core.isSealed(t, game.board)) return name + ', finished, all ' + nameOf(t[0]);
     const names = t.map((c, k) => (k < game.hidden[i] ? 'mystery' : nameOf(c)));
     return name + ', bottom to top: ' + names.join(', ');
   }
@@ -738,7 +746,7 @@
       else segs.push({ color: tube[k], n: 1, hidden: isHidden });
     }
     el.querySelector('.liquid').innerHTML = segs.map((s, si) => segHtml(s, si === segs.length - 1)).join('');
-    const sealed = Core.isSealed(tube, game.board.units);
+    const sealed = Core.isSealed(tube, game.board);
     el.classList.toggle('sealed', sealed);
     if (sealed) el.style.setProperty('--seal', colorOf(tube[0]));
     const label = game.board.labels ? game.board.labels[i] : -1;
@@ -810,7 +818,7 @@
     if (sel < 0) {
       const t = game.tubes[i];
       if (!t.length) return nudge(i, 'That tube is empty. Pick one with liquid in it!');
-      if (Core.isSealed(t, game.board.units)) return nudge(i, 'That tube is already finished!');
+      if (Core.isSealed(t, game.board)) return nudge(i, 'That tube is already finished!');
       select(i);
       Sound.lift();
       return;
@@ -863,7 +871,7 @@
     normalizeHidden();
     renderTube(f);
     renderTube(t);
-    if (Core.isSealed(game.tubes[t], game.board.units)) celebrateSeal(t);
+    if (Core.isSealed(game.tubes[t], game.board)) celebrateSeal(t);
     game.busy = false;
     if (needsLayout) {
       needsLayout = false;
@@ -1383,11 +1391,23 @@
       if (n >= 1 && n <= 9999) startLevel(n);
     });
     // Mode switches on Mix your own.
+    // Giant Tubes and Mini Tubes can't be combined yet, so turning one on
+    // turns the other off.
     const setMode = (change) => {
-      Object.assign(saved.custom.modes, change);
+      const m = saved.custom.modes;
+      let swapped = '';
+      if (change.giant && m.minis) swapped = 'Giant Tubes and Mini Tubes can\'t be combined yet, so Mini Tubes is off.';
+      if (change.minis && m.giant) swapped = 'Giant Tubes and Mini Tubes can\'t be combined yet, so Giant Tubes is off.';
+      Object.assign(m, change);
+      if (change.giant) m.minis = false;
+      if (change.minis) m.giant = 0;
       const { clamped } = clampCustom();
       save();
       renderCustom(clamped);
+      if (swapped) {
+        $('sizeNote').hidden = false;
+        $('sizeNote').textContent = swapped;
+      }
     };
     $('modeGiant').addEventListener('change', (e) => {
       const count = Number((document.querySelector('input[name="giants"]:checked') || {}).value) || 1;
