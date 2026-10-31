@@ -2,7 +2,7 @@
  * Layout: one screen at a time over a bright space-station lab wall. While
  * playing, the HUD, the robot's speech line, the tube board, and the tool
  * bar stack top to bottom and the board takes whatever height is left.
- * Deliberately a single light look: this is a cheerful lab for kids.
+ * Deliberately a single light look: a cheerful, friendly lab.
  */
 :root {
   --wall-top: #e3f7f4;

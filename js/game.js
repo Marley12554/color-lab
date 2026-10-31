@@ -191,7 +191,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=1bb348817a');
+        worker = new Worker('js/worker.js?v=530737fef1');
       }
     } catch (e) {
       worker = null;

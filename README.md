@@ -1,6 +1,6 @@
 # Color Lab
 
-A colorful sci-fi liquid sorting puzzle for kids. Tap a tube, then tap where to pour. You can pour onto the same color or into an empty tube. Finish when every tube holds one color.
+A colorful sci-fi liquid sorting puzzle for all ages. Tap a tube, then tap where to pour. You can pour onto the same color or into an empty tube. Finish when every tube holds one color.
 
 There is no fixed level list. Every level is generated from its number, checked by a solver so it can always be finished, and rated for difficulty, so the levels never run out and level 47 is the same puzzle on every device.
 
