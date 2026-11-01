@@ -122,7 +122,12 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       await tube(p, info.frozen).click();
       check((await p.textContent('#say')).startsWith('Frozen!'), 'a frozen tube says what melts it');
       check(await p.isVisible('.tube.frozen .ice'), 'a frozen tube wears its ice');
+      // Rows are told apart by where their tubes stand.
+      const rows = () =>
+        p.evaluate(() => new Set([...document.querySelectorAll('.tube:not([hidden])')].map((t) => Math.round(t.offsetTop + t.offsetHeight))).size);
+      const rowsBefore = await rows();
       for (const [f, t] of sol.solution.slice(0, info.at + 1)) await pour(p, f, t);
+      check((await rows()) === rowsBefore, `the board keeps its ${rowsBefore} rows when the sample leaves`);
       const shown = await p.locator('.tube:visible').count();
       check(shown === sol.tubes - 1, `melting the ice uses the finished sample up (${shown} of ${sol.tubes} shown)`);
       check((await p.locator('.tube.frozen').count()) === 0, 'the ice is gone');

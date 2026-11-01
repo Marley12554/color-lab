@@ -192,7 +192,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=52b8f0bd33');
+        worker = new Worker('js/worker.js?v=e703d0c2b3');
       }
     } catch (e) {
       worker = null;
@@ -625,6 +625,9 @@
   let positions = [];
   let unit = 40;
   let needsLayout = false;
+  // The row count the board was laid out with, and the board size it was
+  // picked for.
+  let keptRows = {};
 
   function colorOf(c) {
     return PALETTE[game.palette[c]];
@@ -788,6 +791,7 @@
 
   function buildBoard() {
     board.innerHTML = '';
+    keptRows = {};
     tubeEls = game.tubes.map((_, i) => {
       const el = makeTube(i);
       board.appendChild(el);
@@ -872,6 +876,14 @@
       const stacked = plans.filter((p) => p.rows > 1 && p.w >= best.w * 0.75);
       if (stacked.length) best = stacked.reduce((a, p) => (p.w > a.w + 0.5 ? p : a));
     }
+    // A level keeps its number of rows while tubes come and go (a melted
+    // sample, the extra tube, an undo), so the board keeps its shape. Only a
+    // new level or a resized window picks again.
+    if (keptRows.rows && keptRows.bw === bw && keptRows.bh === bh) {
+      const same = plans.find((p) => p.rows === keptRows.rows);
+      if (same) best = same;
+    }
+    keptRows = { rows: best.rows, bw, bh };
 
     const w = Math.floor(best.w);
     unit = w * UNIT;
@@ -930,13 +942,22 @@
   // where it goes, size included, instead of jumping. (Positions change
   // through left/top, sizes through width/height, so each tube is drawn at
   // its old box with a transform and eased to its new one.)
-  function glideLayout() {
+  // opts.skip: a tube to leave alone (one already on its way out).
+  // opts.dir: ripple the moves across the board in that direction (1 is
+  // left to right), starting after opts.delay ms.
+  function glideLayout(opts) {
+    opts = opts || {};
     const before = tubeEls.map((el) => (el.hidden ? null : el.getBoundingClientRect()));
     tubeEls.forEach((el) => (el.style.transition = 'none'));
     layout();
+    const order = tubeEls
+      .map((el, i) => i)
+      .filter((i) => before[i])
+      .sort((x, y) => (before[x].left - before[y].left) * (opts.dir || 1));
+    const delayOf = (i) => (opts.dir ? (opts.delay || 0) + order.indexOf(i) * 45 : 0);
     tubeEls.forEach((el, i) => {
       const a = before[i];
-      if (el.hidden) return;
+      if (el.hidden || i === opts.skip) return;
       const b = el.getBoundingClientRect();
       if (!a) {
         el.animate([{ opacity: 0, transform: 'scale(0.6)' }, { opacity: 1, transform: 'none' }], { duration: 320, easing: 'ease-out' });
@@ -949,7 +970,9 @@
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(k - 1) < 0.01) return;
       el.animate([{ transform: 'translate(' + dx + 'px, ' + dy + 'px) scale(' + k + ')' }, { transform: 'none' }], {
         duration: 420,
+        delay: delayOf(i),
         easing: 'cubic-bezier(.3,.7,.3,1)',
+        fill: 'backwards',
       });
     });
     rackEls.forEach((r) => r.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 420, easing: 'ease-out' }));
@@ -1333,8 +1356,9 @@
     renderTube(f);
     renderTube(t);
     if (melted.length) {
+      let swept = false;
       try {
-        await meltScene(t, melted, color, token);
+        swept = await meltScene(t, melted, color, token);
       } catch (e) {
         /* an interrupted show only skips the show */
       }
@@ -1342,7 +1366,7 @@
       game.view = {};
       renderTube(t);
       melted.forEach(renderTube);
-      glideLayout();
+      if (!swept) glideLayout();
       say('The ice melted.');
     } else if (Core.isSealed(game.tubes[t], game.board)) celebrateSeal(t);
     game.busy = false;
@@ -1774,9 +1798,12 @@
   async function meltScene(t, melted, color, token) {
     const el = tubeEls[t];
     const live = () => token === game.loadToken && el.isConnected;
-    if (reduceMotion || !positions[t]) return;
+    if (reduceMotion || !positions[t]) return false;
     const w = positions[t].w;
     const j = melted[0];
+    // A beat to see the finished color before anything moves.
+    await wait(650);
+    if (!live()) return false;
 
     // The ice it's headed for brightens for a moment.
     const target = tubeEls[j].querySelector('.ice');
@@ -1798,12 +1825,13 @@
     const end = await animatePour(t, j, units, color, 0, { over: true, stay: true, onLand: fx.progress });
     fx.shatter();
     melted.slice(1).forEach((m) => meltFx(m, color, token).shatter());
-    if (!live() || !end) return;
+    if (!live() || !end) return false;
 
-    await leave(el, end);
+    await leave(el, t, end);
     el.hidden = true;
     el.style.transform = '';
     el.classList.remove('pouring');
+    return true;
   }
 
   // Steam, a wash of color down the ice, and cracks, driven by how much of
@@ -1934,48 +1962,47 @@
     ).finished.then(() => d.remove(), () => d.remove());
   }
 
-  // The empty sample leaves along half a circle (flattened into half an
-  // ellipse when there isn't room above): up, over, and out past the side
-  // with more room, mouth first, turning to follow the curve.
-  async function leave(el, end) {
+  // The empty sample turns upright where it is (about its middle, so it
+  // floats off to the side of the rows), then sweeps straight off the nearer
+  // side of the screen while the other tubes close up behind it.
+  async function leave(el, t, end) {
     const w = parseFloat(el.style.width) || 40;
+    const h = parseFloat(el.style.height) || w * 4;
+    const [sx, sy] = end.sh;
+    const a = end.angle;
+    const pose = (x, y, r) => 'translate(' + x + 'px, ' + y + 'px) rotate(' + r + 'rad)';
+    // The tube turns about its top middle, so keep its middle in place,
+    // but keep the whole tube on the board.
     const baseX = parseFloat(el.style.left) || 0;
     const baseY = parseFloat(el.style.top) || 0;
-    // The point that follows the curve is the tube's mouth (its transform
-    // origin), which starts where the pour left it.
-    const x0 = baseX + w / 2 + end.sh[0];
-    const y0 = baseY + end.sh[1];
-    const out = x0 < board.clientWidth / 2 ? 1 : -1;
-    // Far enough to clear the board's far edge.
-    const span = (out > 0 ? board.clientWidth - x0 : x0) + w * 4.5;
-    const rx = span / 2;
-    const ry = Math.max(w * 1.2, Math.min(rx, y0 - w * 0.3));
-    const cx = x0 + out * rx;
-    // Rotation that points the mouth along the direction of travel.
-    const heading = (vx, vy) => Math.atan2(vx, -vy);
-    const frames = [];
-    const steps = 24;
-    let prev = end.angle;
-    for (let k = 0; k <= steps; k++) {
-      const u = k / steps;
-      const th = Math.PI * u; // 0 at the start, PI at the far end
-      const px = cx - out * rx * Math.cos(th);
-      const py = y0 - ry * Math.sin(th);
-      const vx = out * rx * Math.sin(th);
-      const vy = -ry * Math.cos(th);
-      let a = heading(vx, vy);
-      // Unwrap so the turn never takes the long way round.
-      while (a - prev > Math.PI) a -= 2 * Math.PI;
-      while (a - prev < -Math.PI) a += 2 * Math.PI;
-      // Ease from the pouring angle into the curve over the first stretch.
-      const blend = Math.min(1, u / 0.3);
-      const ang = end.angle + (a - end.angle) * (blend * blend * (3 - 2 * blend));
-      prev = a;
-      frames.push({ transform: 'translate(' + (px - baseX - w / 2) + 'px, ' + (py - baseY) + 'px) rotate(' + ang + 'rad)' });
-    }
-    Sound.whoosh();
-    await el.animate(frames, { duration: 1100, easing: 'cubic-bezier(.4,0,.7,1)', fill: 'forwards' }).finished.catch(() => {});
+    const ux = Math.min(board.clientWidth - w - baseX, Math.max(-baseX, sx - Math.sin(a) * (h / 2)));
+    const uy = Math.max(w * 0.15 - baseY, sy + Math.cos(a) * (h / 2) - h / 2);
+    // A soft shadow while it floats, so it reads as lifted in front of the rows.
+    el.style.filter = 'drop-shadow(0 8px 10px rgba(30, 42, 94, 0.3))';
+    await el
+      .animate([{ transform: pose(sx, sy, a) }, { transform: pose(ux, uy, 0) }], {
+        duration: 380,
+        easing: 'cubic-bezier(.4,0,.2,1)',
+        fill: 'forwards',
+      })
+      .finished.catch(() => {});
+    const box = el.getBoundingClientRect();
+    const out = box.left + box.width / 2 < window.innerWidth / 2 ? -1 : 1;
+    const dist = out > 0 ? window.innerWidth - box.left + 20 : box.right + 20;
     el.getAnimations().forEach((x) => x.cancel());
+    el.style.transform = pose(ux, uy, 0);
+    const sweep = el.animate([{ transform: pose(ux, uy, 0) }, { transform: pose(ux + out * dist, uy, 0) }], {
+      duration: 560,
+      easing: 'cubic-bezier(.5,0,.75,.35)',
+      fill: 'forwards',
+    });
+    Sound.whoosh();
+    // The rest close up in a wave that follows it out.
+    delete game.view[t];
+    glideLayout({ skip: t, dir: out, delay: 110 });
+    await sweep.finished.catch(() => {});
+    el.getAnimations().forEach((x) => x.cancel());
+    el.style.filter = '';
   }
 
   function celebrateSeal(i) {
