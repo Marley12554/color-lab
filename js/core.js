@@ -52,6 +52,28 @@
 
   // ---------- Rules on arrays (what the game uses) ----------
 
+  /*
+   * Frozen tubes. A frozen tube's array starts with an ice marker, -2 - c,
+   * where c is the color that melts it; its layers follow. Nothing pours
+   * into or out of it. When a pour finishes color c, the finished sample
+   * pours itself over the ice and is used up: the ice is gone, and the
+   * sample's tube becomes [GONE], off the board.
+   */
+  const GONE = -1;
+
+  function iceOf(tube) {
+    return tube.length && tube[0] <= -2 ? -2 - tube[0] : -1;
+  }
+
+  function isGone(tube) {
+    return tube.length === 1 && tube[0] === GONE;
+  }
+
+  // A tube's layers, without its ice marker.
+  function layersOf(tube) {
+    return iceOf(tube) >= 0 ? tube.slice(1) : isGone(tube) ? [] : tube;
+  }
+
   function topRun(tube) {
     const n = tube.length;
     if (!n) return { color: -1, count: 0 };
@@ -94,7 +116,7 @@
   // A tube is finished (and capped) when it holds all of one color. The
   // second argument is the board, or just the layers per color.
   function isSealed(tube, board) {
-    if (!tube.length) return false;
+    if (!tube.length || tube[0] < 0) return false;
     const need = amountOf(board, tube[0]);
     if (tube.length !== need) return false;
     for (let i = 1; i < need; i++) if (tube[i] !== tube[0]) return false;
@@ -106,6 +128,8 @@
     if (from === to) return 'same';
     const src = tubes[from];
     const dst = tubes[to];
+    if (isGone(src) || isGone(dst)) return 'gone';
+    if (iceOf(src) >= 0 || iceOf(dst) >= 0) return 'frozen';
     if (!src.length) return 'empty';
     if (isSealed(src, board)) return 'sealed';
     if (isSealed(dst, board)) return 'sealed';
@@ -125,13 +149,30 @@
   function pour(tubes, board, from, to) {
     const k = pourAmount(tubes, board, from, to);
     for (let i = 0; i < k; i++) tubes[to].push(tubes[from].pop());
+    if (k) melt(tubes, board, to);
     return k;
+  }
+
+  // When tube `to` has just finished a color, any ice of that color melts
+  // and the finished sample is used up. Returns the tubes that melted.
+  function melt(tubes, board, to) {
+    const done = tubes[to];
+    if (!isSealed(done, board)) return [];
+    const melted = [];
+    tubes.forEach((t, i) => {
+      if (iceOf(t) === done[0]) {
+        t.shift();
+        melted.push(i);
+      }
+    });
+    if (melted.length) done.splice(0, done.length, GONE);
+    return melted;
   }
 
   // Every tube is empty or one finished color, and every labeled tube holds
   // its finished color.
   function isSolved(tubes, board) {
-    return tubes.every((t, i) => (t.length === 0 && labelAt(board, i) < 0) || isSealed(t, board));
+    return tubes.every((t, i) => isGone(t) || (t.length === 0 && labelAt(board, i) < 0) || isSealed(t, board));
   }
 
   // True when some pour would change the picture. Pouring a one-color tube
@@ -155,15 +196,23 @@
 
   // ---------- String form (what the solver uses) ----------
 
-  const BASE = 97; // 'a'
+  const BASE = 97; // 'a': layers are lowercase letters
+  const ICE = 65; // 'A': an ice marker, by the color that melts it
+  const GONE_CH = 35; // '#': a sample used up melting ice
+
+  const charOf = (v) => (v >= 0 ? v + BASE : v === GONE ? GONE_CH : ICE + (-2 - v));
+  const valueOf = (code) => (code >= BASE ? code - BASE : code === GONE_CH ? GONE : -2 - (code - ICE));
 
   function encode(tubes) {
-    return tubes.map((t) => String.fromCharCode.apply(null, t.map((c) => c + BASE)));
+    return tubes.map((t) => String.fromCharCode.apply(null, t.map(charOf)));
   }
 
   function decode(state) {
-    return state.map((s) => Array.from(s, (ch) => ch.charCodeAt(0) - BASE));
+    return state.map((s) => Array.from(s, (ch) => valueOf(ch.charCodeAt(0))));
   }
+
+  // Frozen or used up: anything that isn't plain layers (or empty).
+  const sBlocked = (s) => s.length > 0 && s.charCodeAt(0) < BASE;
 
   function sRun(s) {
     const n = s.length;
@@ -183,7 +232,7 @@
   function sSolved(state, sb) {
     for (let i = 0; i < state.length; i++) {
       const s = state[i];
-      if (s.length ? !sSealed(s, sb) : sb.labels[i] >= 0) return false;
+      if (s.length ? !sSealed(s, sb) && s !== '#' : sb.labels[i] >= 0) return false;
     }
     return true;
   }
@@ -191,7 +240,7 @@
   // The solver's view of a board: each tube's height and label (as a
   // character code, -1 for none), and tags that keep tubes of different
   // heights or labels apart when states are compared.
-  function solverBoard(board, count) {
+  function solverBoard(board, count, start) {
     const caps = capsFor(board, count);
     const labels = labelsFor(board, count).map((l) => (l >= 0 ? l + BASE : -1));
     const tags = caps.map((c, i) => c + ':' + labels[i] + ':');
@@ -199,7 +248,9 @@
     const units = unitsOf(board);
     const need = [];
     for (let c = 0; c < 26; c++) need[c + BASE] = amountOf(board, c);
-    return { caps, labels, units, need, tags: same ? null : tags };
+    // Boards with ice melt and use up tubes as they go.
+    const ice = !!start && start.some((s) => sBlocked(s) && s !== '#');
+    return { caps, labels, units, need, ice, tags: same ? null : tags };
   }
 
   // Tubes of the same height are interchangeable, so states compare by their
@@ -209,20 +260,25 @@
     return state.map((s, i) => tags[i] + s).sort().join('|');
   }
 
+  // Color sections across all tubes (ice markers and used-up tubes aside).
   function segments(state) {
     let seg = 0;
     for (let i = 0; i < state.length; i++) {
       const s = state[i];
-      if (!s.length) continue;
-      seg++;
-      for (let j = 1; j < s.length; j++) if (s.charCodeAt(j) !== s.charCodeAt(j - 1)) seg++;
+      let prev = -1;
+      for (let j = 0; j < s.length; j++) {
+        const c = s.charCodeAt(j);
+        if (c < BASE) continue;
+        if (c !== prev) seg++;
+        prev = c;
+      }
     }
     return seg;
   }
 
   function colorCount(state) {
     const seen = new Set();
-    for (const s of state) for (const ch of s) seen.add(ch);
+    for (const s of state) for (const ch of s) if (ch.charCodeAt(0) >= BASE) seen.add(ch);
     return seen.size;
   }
 
@@ -243,7 +299,7 @@
     }
     for (let f = 0; f < state.length; f++) {
       const s = state[f];
-      if (!s.length || sSealed(s, sb)) continue;
+      if (!s.length || sBlocked(s) || sSealed(s, sb)) continue;
       const run = sRun(s);
       const uniform = run === s.length;
       const c = s.charCodeAt(s.length - 1);
@@ -251,6 +307,7 @@
         if (t === f) continue;
         if (labels[t] >= 0 && labels[t] !== c) continue;
         const d = state[t];
+        if (sBlocked(d)) continue;
         if (!d.length) {
           if (firstEmpty[kind(t)] !== t || (uniform && kind(t) === kind(f))) continue;
           out.push(f, t, Math.min(run, caps[t]));
@@ -263,11 +320,23 @@
     return out;
   }
 
-  function sApply(state, f, t, k) {
+  function sApply(state, f, t, k, sb) {
     const next = state.slice();
     const s = state[f];
     next[f] = s.slice(0, s.length - k);
     next[t] = state[t] + s.slice(s.length - k);
+    // Finishing a color melts its ice and uses the finished sample up.
+    if (sb && sb.ice && sSealed(next[t], sb)) {
+      const mark = next[t].charCodeAt(0) - BASE + ICE;
+      let melted = false;
+      for (let i = 0; i < next.length; i++) {
+        if (next[i].charCodeAt(0) === mark) {
+          next[i] = next[i].slice(1);
+          melted = true;
+        }
+      }
+      if (melted) next[t] = '#';
+    }
     return next;
   }
 
@@ -340,10 +409,14 @@
     const maxNodes = opts.maxNodes || 150000;
     const weight = opts.weight == null ? 2 : opts.weight;
     const start = typeof tubes[0] === 'string' || !tubes.length ? tubes : encode(tubes);
-    const sb = solverBoard(board, start.length);
+    const sb = solverBoard(board, start.length, start);
     if (sSolved(start, sb)) return { status: 'solved', moves: [], nodes: 0 };
 
+    // Using up a finished sample takes its color off the board, so with ice
+    // the count of colors is taken per state. (It stays a lower bound: a
+    // pour that uses up a sample removes one section and one color.)
     const colors = colorCount(start);
+    const left = (state) => (sb.ice ? colorCount(state) : colors);
     const startKey = keyOf(start, sb.tags);
     const states = [start];
     const keys = [startKey];
@@ -356,7 +429,7 @@
     const best = new Map([[startKey, 0]]);
     const heap = new Heap();
     const buf = [];
-    heap.push(0, weight * (segments(start) - colors));
+    heap.push(0, weight * (segments(start) - left(start)));
 
     let expanded = 0;
     while (heap.size) {
@@ -368,7 +441,7 @@
       const g = depth[id] + 1;
       sMoves(state, sb, buf);
       for (let m = 0; m < buf.length; m += 3) {
-        const next = sApply(state, buf[m], buf[m + 1], buf[m + 2]);
+        const next = sApply(state, buf[m], buf[m + 1], buf[m + 2], sb);
         const key = keyOf(next, sb.tags);
         const known = best.get(key);
         if (known !== undefined && known <= g) continue;
@@ -386,7 +459,7 @@
           moves.reverse();
           return { status: 'solved', moves, nodes: expanded };
         }
-        const h = segments(next) - colors;
+        const h = segments(next) - left(next);
         // Small tie-break toward states closer to done.
         heap.push(nid, g + weight * h + h * 0.001);
       }
@@ -420,12 +493,12 @@
         const f = buf[m];
         const t = buf[m + 1];
         const k = buf[m + 2];
-        const next = sApply(state, f, t, k);
+        const next = sApply(state, f, t, k, sb);
         const key = keyOf(next, sb.tags);
         if (seen.has(key)) continue;
         let w;
         if (!state[t].length) w = 1;
-        else if (sSealed(next[t], sb)) w = 12;
+        else if (sSealed(next[t], sb) || next[t] === '#') w = 12;
         else if (k === sRun(state[f])) w = 4;
         else w = 0.7;
         nexts.push(next);
@@ -453,7 +526,7 @@
     const runs = opts.playouts || 60;
     const rng = makeRng(opts.seed == null ? 1 : opts.seed);
     const start = typeof tubes[0] === 'string' ? tubes : encode(tubes);
-    const sb = solverBoard(board, start.length);
+    const sb = solverBoard(board, start.length, start);
     const maxSteps = opts.maxSteps || 40 + start.length * sb.units * 4;
     let stuck = 0;
     for (let i = 0; i < runs; i++) if (!playout(start, sb, rng, maxSteps)) stuck++;
@@ -487,11 +560,11 @@
     // so a modest search per pour catches nearly all of them.
     const maxNodes = opts.maxNodes || 1000;
     let state = typeof tubes[0] === 'string' ? tubes : encode(tubes);
-    const sb = solverBoard(board, state.length);
+    const sb = solverBoard(board, state.length, state);
     const route = [state];
     for (const [f, t] of solution) {
       const k = Math.min(sRun(state[f]), sb.caps[t] - state[t].length);
-      state = sApply(state, f, t, k);
+      state = sApply(state, f, t, k, sb);
       route.push(state);
     }
     const stops = Math.max(1, route.length - 1);
@@ -517,7 +590,7 @@
         const f = buf[m];
         const t = buf[m + 1];
         const k = buf[m + 2];
-        const next = sApply(here, f, t, k);
+        const next = sApply(here, f, t, k, sb);
         options++;
         let cost = 1;
         if (!sSolved(next, sb)) {
@@ -531,7 +604,7 @@
         if (Number.isNaN(cost)) continue;
         best = Math.min(best, cost);
         spreadMax = Math.max(spreadMax, cost);
-        const rank = sSealed(next[t], sb) ? 3 : here[t].length && k === sRun(here[f]) ? 2 : here[t].length ? 1 : 0;
+        const rank = sSealed(next[t], sb) || next[t] === '#' ? 3 : here[t].length && k === sRun(here[f]) ? 2 : here[t].length ? 1 : 0;
         if (rank > obviousRank) {
           obviousRank = rank;
           obviousBest = cost;
@@ -614,11 +687,13 @@
    * - labels: one to three empty tubes that each take only one color, and
    *   must end up holding it.
    * - mystery: layers stay hidden until uncovered (the game handles this).
+   * - ice: a filled tube starts frozen, tinted with a color it doesn't hold.
+   *   Finishing that color melts it (and uses the finished sample up).
    * With no modes it is the classic board. Giant tubes and mini tubes are
    * not offered together yet: digging a packed giant tube out into small
    * tubes alone makes boards that take far too long to generate.
    */
-  const NO_MODES = { giant: 0, minis: false, labels: false, mystery: false };
+  const NO_MODES = { giant: 0, minis: false, labels: false, mystery: false, ice: false };
 
   function normalizeModes(modes) {
     const m = Object.assign({}, NO_MODES, modes || {});
@@ -626,6 +701,7 @@
     m.minis = !!m.minis;
     m.labels = !!m.labels;
     m.mystery = !!m.mystery;
+    m.ice = !!m.ice;
     // With mini tubes, only one giant tube (two take too long to generate).
     if (m.minis && m.giant > 1) m.giant = 1;
     return m;
@@ -651,7 +727,7 @@
   // True when the board itself differs from classic (mystery doesn't).
   function hasBoardModes(modes) {
     const m = normalizeModes(modes);
-    return m.giant > 0 || m.minis || m.labels;
+    return m.giant > 0 || m.minis || m.labels || m.ice;
   }
 
   function labelCount(colors) {
@@ -671,7 +747,7 @@
     const m = normalizeModes(modes);
     let min = 2;
     if (m.giant) min = Math.max(min, m.giant + 2);
-    if (m.labels) min = Math.max(min, 3);
+    if (m.labels || m.ice) min = Math.max(min, 3);
     return min;
   }
 
@@ -780,8 +856,28 @@
     shuffle(pool, rng);
     let at = 0;
     const tubes = board.fills.map((n) => pool.slice(at, (at += n)));
+    if (normalizeModes(modes).ice) freeze(tubes, board, rng);
     tubes.board = board;
     return tubes;
+  }
+
+  // Freezes one filled, regular-height, unlabeled tube, with the ice tinted
+  // a color the tube doesn't hold (so that color can be finished first).
+  // Never a giant tube's big color or a labeled tube's color, so the sample
+  // used up melting the ice is always an ordinary tube.
+  function freeze(tubes, board, rng) {
+    const units = unitsOf(board);
+    const colors = new Set(tubes.flat()).size;
+    const special = new Set((board.big || []).concat(board.labels.filter((l) => l >= 0)));
+    const spots = tubes
+      .map((t, i) => i)
+      .filter((i) => board.caps[i] === units && board.labels[i] < 0 && tubes[i].length === units);
+    if (!spots.length) return;
+    const i = spots[rng.int(spots.length)];
+    const away = [];
+    for (let c = 0; c < colors; c++) if (!tubes[i].includes(c) && !special.has(c)) away.push(c);
+    if (!away.length) return;
+    tubes[i].unshift(-2 - away[rng.int(away.length)]);
   }
 
   /*
@@ -794,6 +890,24 @@
    */
   function modesMatter(tubes, board, modes, solution) {
     const m = normalizeModes(modes);
+    // The ice must get in the way: the solver's answer with the ice ignored
+    // has to touch the frozen tube before its color is finished.
+    if (m.ice) {
+      if (!tubes.some((t) => iceOf(t) >= 0)) return false;
+      const r = solve(tubes.map(layersOf), board, { maxNodes: 20000 });
+      if (r.status === 'solved') {
+        const state = cloneTubes(tubes);
+        let broke = false;
+        for (const [f, t] of r.moves) {
+          if (pourProblem(state, board, f, t)) {
+            broke = true;
+            break;
+          }
+          pour(state, board, f, t);
+        }
+        if (!broke) return false;
+      }
+    }
     if (m.minis && m.labels && solution) {
       const intoMinis = solution.filter(([, t]) => board.caps[t] < board.units).length;
       if (intoMinis < 2) return false;
@@ -1005,15 +1119,15 @@
       [9, 4, 2, 0.6], [5, 4, 1, 0.7], [7, 4, 2, 0.5, 'label'], [9, 4, 2, 0.8], [10, 4, 2, 0.5],
     ] },
     { name: 'Orbit Lab', levels: [
-      [8, 5, 2, 0.4], [9, 5, 2, 0.5], [10, 4, 2, 0.6], [7, 4, 2, 0.6, 'm'], [6, 6, 2, 0.5],
+      [8, 5, 2, 0.4], [7, 4, 2, 0.4, 'ice'], [10, 4, 2, 0.6], [7, 4, 2, 0.6, 'm'], [6, 6, 2, 0.5],
       [8, 4, 3, 0.5, 'g2'], [6, 4, 1, 0.7], [9, 5, 2, 0.8], [7, 6, 2, 0.6], [11, 4, 2, 0.6],
     ] },
     { name: 'Nebula Lab', levels: [
-      [9, 6, 2, 0.4], [10, 5, 2, 0.6], [8, 4, 2, 0.7, 'm'], [11, 4, 2, 0.7], [8, 6, 2, 0.6],
+      [9, 6, 2, 0.4], [10, 5, 2, 0.6], [8, 4, 2, 0.7, 'm'], [10, 4, 2, 0.6, 'ice'], [8, 6, 2, 0.6],
       [8, 5, 2, 0.6, 'g1 label'], [10, 5, 2, 0.8], [12, 4, 2, 0.5], [10, 4, 2, 0.6], [11, 5, 2, 0.7],
     ] },
     { name: 'Galaxy Lab', levels: [
-      [12, 4, 2, 0.7], [9, 6, 2, 0.6], [11, 5, 2, 0.8], [9, 5, 2, 0.6, 'm'], [12, 5, 2, 0.6],
+      [12, 4, 2, 0.7], [9, 6, 2, 0.6], [11, 5, 2, 0.8], [9, 5, 2, 0.6, 'ice m'], [12, 5, 2, 0.6],
       [9, 4, 2, 0.6, 'mini m'], [11, 6, 2, 0.6], [12, 4, 2, 0.9], [10, 5, 3, 0.7, 'g2 label'], [12, 5, 2, 0.9],
     ] },
   ];
@@ -1023,7 +1137,7 @@
     [12, 4, 2], [12, 5, 2], [11, 6, 2], [10, 6, 2], [11, 5, 2],
     [6, 4, 1], [11, 6, 2], [10, 5, 2, 'm'], [8, 4, 2, 'm'],
     [9, 4, 2, 'g1'], [7, 6, 2, 'g1'], [11, 5, 3, 'g2'], [12, 4, 2, 'label'],
-    [9, 5, 2, 'mini'], [8, 5, 2, 'g1 label'], [8, 4, 2, 'mini label'],
+    [9, 5, 2, 'mini'], [8, 5, 2, 'g1 label'], [8, 4, 2, 'mini label'], [10, 5, 2, 'ice'], [9, 4, 2, 'ice label'],
   ];
   const ENDLESS_NAMES = ['Star Lab', 'Moon Lab', 'Meteor Lab', 'Planet Lab', 'Quasar Lab', 'Aurora Lab'];
 
@@ -1047,6 +1161,7 @@
       minis: words.includes('mini'),
       labels: words.includes('label'),
       mystery: words.includes('m'),
+      ice: words.includes('ice'),
     });
   }
 
@@ -1106,6 +1221,11 @@
     makeRng,
     shuffle,
     topRun,
+    GONE,
+    iceOf,
+    isGone,
+    layersOf,
+    melt,
     isSealed,
     pourProblem,
     pourAmount,

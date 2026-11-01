@@ -52,6 +52,32 @@ test('a pour stops when the target fills up', () => {
   assert.deepEqual(tubes, [[1, 1], [0, 0, 1, 1], []]);
 });
 
+test('a frozen tube takes no pours, and finishing its color melts it', () => {
+  // Tube 2 is frozen by color 1 and holds a 0; color 1 is one pour from done.
+  const board = { caps: [3, 3, 3, 3], units: 3 };
+  const tubes = [[1, 1], [0, 0, 1], [-3, 0, 2, 2], [2]];
+  assert.equal(C.iceOf(tubes[2]), 1);
+  assert.equal(C.pourProblem(tubes, board, 3, 2), 'frozen');
+  assert.equal(C.pourProblem(tubes, board, 2, 3), 'frozen');
+  assert.equal(C.pour(tubes, board, 1, 0), 1);
+  // Color 1 finished: the ice is gone and the finished sample used up.
+  assert.deepEqual(tubes, [[C.GONE], [0, 0], [0, 2, 2], [2]]);
+  assert.equal(C.pourProblem(tubes, board, 2, 3), null);
+  assert.equal(C.pourProblem(tubes, board, 1, 0), 'gone');
+  C.pour(tubes, board, 2, 3);
+  C.pour(tubes, board, 2, 1);
+  assert.ok(C.isSolved(tubes, board));
+});
+
+test('the solver melts ice the same way the rules do', () => {
+  const board = { caps: [3, 3, 3, 3], units: 3 };
+  const tubes = [[1, 1], [0, 0, 1], [-3, 0, 2, 2], [2]];
+  const r = C.solve(tubes, board, { weight: 1 });
+  assert.equal(r.status, 'solved');
+  assert.equal(r.moves.length, bruteForce(tubes, board));
+  assert.ok(C.isSolved(replay(tubes, board, r.moves), board));
+});
+
 test('pour problems are named', () => {
   const tubes = [[0, 1], [0, 0], [2, 2, 2, 2], [], [0, 1, 2, 0]];
   assert.equal(C.pourProblem(tubes, 4, 0, 1), 'mismatch');
@@ -95,7 +121,7 @@ test('the solver agrees with brute force on small puzzles', () => {
   assert.ok(solvable > 50 && unsolvable > 20, `${solvable} solvable, ${unsolvable} not`);
 });
 
-const MODE_SETS = ['g1', 'g2', 'mini', 'label', 'g1 label', 'g2 label', 'mini label', 'g1 mini', 'g1 mini label'];
+const MODE_SETS = ['g1', 'g2', 'mini', 'label', 'g1 label', 'g2 label', 'mini label', 'g1 mini', 'g1 mini label', 'ice', 'ice label', 'g1 ice', 'ice mini'];
 
 test('the solver agrees with brute force in every mode', () => {
   for (const text of MODE_SETS) {
@@ -221,7 +247,7 @@ test('every mode generates fair puzzles where the mode matters', () => {
       assert.ok(p, `no ${text} puzzle at height ${units}`);
       const board = { caps: p.caps, labels: p.labels, big: p.big, units };
       assert.equal(p.caps.length, p.tubes.length);
-      p.tubes.forEach((t, i) => assert.ok(t.length <= p.caps[i], `${text} tube ${i} overfilled`));
+      p.tubes.forEach((t, i) => assert.ok(C.layersOf(t).length <= p.caps[i], `${text} tube ${i} overfilled`));
       assert.equal(p.big.length, modes.giant, 'one big color per giant tube');
       for (let c = 0; c < colors; c++) {
         const want = p.big.includes(c) ? units * 2 : units;
@@ -238,7 +264,7 @@ test('every mode generates fair puzzles where the mode matters', () => {
         // Each big color ends up filling a giant tube.
         p.big.forEach((c) => assert.ok(giants.some((i) => end[i].length === units * 2 && end[i].every((x) => x === c))));
         // Giant tubes no longer bring extra room: free room is the empty-tube setting.
-        const room = p.caps.reduce((a, c) => a + c, 0) - p.tubes.flat().length;
+        const room = p.caps.reduce((a, c) => a + c, 0) - p.tubes.map(C.layersOf).flat().length;
         if (!modes.minis && !modes.labels) assert.equal(room, empties * units, `${text}: room matches the empty-tube setting`);
       }
       if (modes.minis) assert.ok(p.caps.some((c) => c < units));

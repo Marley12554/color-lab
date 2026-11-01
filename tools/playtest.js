@@ -28,7 +28,7 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
   }
 
   // 16 big beaker, 26 mini tubes, 38 rocket boosters, 46 staircase.
-  for (const level of [2, 12, 16, 26, 31, 35, 38, 46, 47, 61]) {
+  for (const level of [2, 12, 16, 26, 31, 35, 38, 42, 46, 47, 61]) {
     const p = await open(level);
     // The worker's puzzle must match the page's own copy of the generator.
     const sol = await p.evaluate((n) => {
@@ -103,6 +103,35 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
         await p.click('#tubeBtn');
         check(!(await p.isDisabled('#restartBtn')), 'restart on after using the extra tube');
       }
+    }
+    // Frozen tubes: tapping one says what melts it; finishing that color
+    // melts the ice and uses the finished sample up; undo puts both back.
+    if (level === 42) {
+      const info = await p.evaluate(() => {
+        const C = window.ColorLabCore;
+        const lv = C.generateLevel(42);
+        const board = { caps: lv.caps, labels: lv.labels, big: lv.big, units: lv.cap };
+        const s = C.cloneTubes(lv.tubes);
+        let at = -1;
+        for (let m = 0; m < lv.solution.length && at < 0; m++) {
+          C.pour(s, board, lv.solution[m][0], lv.solution[m][1]);
+          if (C.isGone(s[lv.solution[m][1]])) at = m;
+        }
+        return { frozen: lv.tubes.findIndex((t) => C.iceOf(t) >= 0), at };
+      });
+      await tube(p, info.frozen).click();
+      check((await p.textContent('#say')).startsWith('Frozen!'), 'a frozen tube says what melts it');
+      check(await p.isVisible('.tube.frozen .ice'), 'a frozen tube wears its ice');
+      for (const [f, t] of sol.solution.slice(0, info.at + 1)) await pour(p, f, t);
+      const shown = await p.locator('.tube:visible').count();
+      check(shown === sol.tubes - 1, `melting the ice uses the finished sample up (${shown} of ${sol.tubes} shown)`);
+      check((await p.locator('.tube.frozen').count()) === 0, 'the ice is gone');
+      await p.click('#undoBtn');
+      check(
+        (await p.locator('.tube:visible').count()) === sol.tubes && (await p.locator('.tube.frozen').count()) === 1,
+        'undo brings the sample back and refreezes the tube'
+      );
+      await p.click('#restartBtn');
     }
     for (const [f, t] of sol.solution) await pour(p, f, t);
     await p.waitForSelector('#win:not([hidden])', { timeout: 5000 });
@@ -263,7 +292,7 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     check((await q.locator('.preset[aria-pressed="true"]').count()) === 0, 'no preset lit once changed');
     check(await q.isChecked('input[name="trick"][value="2"]'), 'trickiness stays where it was');
     await q.click('.preset[data-preset="hard"]');
-    const hardModes = await q.evaluate(() => ['modeGiant', 'modeLabels', 'mysteryToggle'].filter((id) => document.getElementById(id).checked));
+    const hardModes = await q.evaluate(() => ['modeGiant', 'modeLabels', 'mysteryToggle', 'modeIce'].filter((id) => document.getElementById(id).checked));
     check(hardModes.length === 1, `Hard adds one surprise mode (${hardModes})`);
     await q.click('.preset[data-preset="genius"]');
     await q.click('.stepper[data-key="empties"] [data-step="1"]');

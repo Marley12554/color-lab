@@ -63,6 +63,7 @@
   };
   // What the robot says when a mode shows up, rarest first.
   const MODE_INTROS = [
+    ['ice', "A frozen tube! Finish the ice's color, and that sample will melt it."],
     ['labels', 'Labeled tubes! Each one only takes its own color.'],
     ['minis', 'Mini tubes! They hold just a little and must end up empty.'],
     ['giant', 'Giant tubes! One color has twice as many layers. Fill a giant tube all the way with it!'],
@@ -80,6 +81,7 @@
     if (modes.minis) names.push('Mini Tubes');
     if (modes.labels) names.push('Labeled Tubes');
     if (modes.mystery) names.push('Mystery Layers');
+    if (modes.ice) names.push('Frozen Tubes');
     return names;
   }
   const CHEERS = ["Let's sort these samples!", 'Ready, scientist?', 'Time for some science!', 'Sort it, pour it, seal it!', 'You can do it!'];
@@ -92,12 +94,12 @@
     { name: 'Normal', pick: 0.5 },
     { name: 'Sneaky', pick: 1 },
   ];
-  const NO_MODES = { giant: 0, minis: false, labels: false, mystery: false };
+  const NO_MODES = { giant: 0, minis: false, labels: false, mystery: false, ice: false };
   // One tap sets every setting. Hard adds one surprise mode from its pool.
   const PRESETS = [
     { id: 'easy', name: 'Easy', colors: 5, cap: 4, empties: 2, trick: 0, modes: {} },
     { id: 'medium', name: 'Medium', colors: 8, cap: 4, empties: 2, trick: 1, modes: {} },
-    { id: 'hard', name: 'Hard', colors: 10, cap: 5, empties: 2, trick: 2, pool: [{ giant: 1 }, { labels: true }, { mystery: true }] },
+    { id: 'hard', name: 'Hard', colors: 10, cap: 5, empties: 2, trick: 2, pool: [{ giant: 1 }, { labels: true }, { mystery: true }, { ice: true }] },
     { id: 'genius', name: 'Genius', colors: 12, cap: 5, empties: 2, trick: 2, modes: { labels: true, mystery: true } },
   ];
   // Extra moves allowed for 3 stars, as a share of the robot's count.
@@ -190,7 +192,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=c41e4abd87');
+        worker = new Worker('js/worker.js?v=790303c983');
       }
     } catch (e) {
       worker = null;
@@ -385,6 +387,7 @@
     });
     $('modeMinis').checked = m.minis;
     $('modeLabels').checked = m.labels;
+    $('modeIce').checked = m.ice;
     const note = $('sizeNote');
     // Explain a limit only when it is the thing stopping a button.
     const pairCap = m.minis && m.labels && c.colors >= max;
@@ -455,6 +458,7 @@
       modeMinis: m.minis,
       modeLabels: m.labels,
       mysteryToggle: m.mystery,
+      modeIce: m.ice,
     };
   }
 
@@ -497,15 +501,23 @@
   const MODE_ICONS = {
     giant: '<rect x="2" y="1" width="5" height="14" rx="2.5"/><rect x="9" y="7" width="5" height="8" rx="2.5"/>',
     labels: '<path d="M1.5 2.5a1 1 0 0 1 1-1h6a1 1 0 0 1 .7.3l5 5a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4 0l-5-5a1 1 0 0 1-.3-.7z"/><circle cx="5" cy="5" r="1.6" fill="#fff"/>',
+    ice: '<path d="M1 1.5h14v2.4l-1.2.9-.8 3.6-1-3.2-1.1 6.9-1.2-6.7-1 3.1-1-3.6-1.2 5.6-1.1-5.4-.9 2.6-1-2.9L1 3.9z"/>',
     minis: '<rect x="1.5" y="3" width="4" height="12" rx="2"/><rect x="6.5" y="9" width="4" height="6" rx="2"/><rect x="11.5" y="9" width="4" height="6" rx="2"/>',
     mystery: '<rect x="1" y="1" width="14" height="14" rx="4"/><path d="M6 6.2a2 2 0 1 1 2.8 1.8c-.6.3-.8.7-.8 1.3" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fff"/>',
     surprise: '<rect x="1" y="1" width="14" height="14" rx="4"/><circle cx="5" cy="5" r="1.5" fill="#fff"/><circle cx="8" cy="8" r="1.5" fill="#fff"/><circle cx="11" cy="11" r="1.5" fill="#fff"/>',
   };
-  const MODE_TITLES = { giant: 'Giant Tubes', minis: 'Mini Tubes', labels: 'Labeled Tubes', mystery: 'Mystery Layers', surprise: 'One surprise mode' };
+  const MODE_TITLES = {
+    giant: 'Giant Tubes',
+    minis: 'Mini Tubes',
+    labels: 'Labeled Tubes',
+    mystery: 'Mystery Layers',
+    ice: 'Frozen Tubes',
+    surprise: 'One surprise mode',
+  };
 
   // The same icons the preset cards use, in front of each mode's name.
   function addModeIcons() {
-    const ids = { modeGiant: 'giant', modeMinis: 'minis', modeLabels: 'labels', mysteryToggle: 'mystery' };
+    const ids = { modeGiant: 'giant', modeMinis: 'minis', modeLabels: 'labels', mysteryToggle: 'mystery', modeIce: 'ice' };
     Object.entries(ids).forEach(([id, k]) => {
       const name = $(id).closest('label').querySelector('span');
       name.insertAdjacentHTML('afterbegin', '<svg class="mode-icon" viewBox="0 0 16 16" aria-hidden="true">' + MODE_ICONS[k] + '</svg>');
@@ -515,7 +527,7 @@
   function buildPresets() {
     $('presets').innerHTML = PRESETS.map((p) => {
       const m = p.modes || {};
-      const icons = p.pool ? ['surprise'] : ['giant', 'labels', 'mystery'].filter((k) => m[k]);
+      const icons = p.pool ? ['surprise'] : ['giant', 'labels', 'mystery', 'ice'].filter((k) => m[k]);
       return (
         '<button class="preset" type="button" data-preset="' + p.id + '" aria-pressed="false">' + presetBoard(p) +
         '<span class="preset-name">' + p.name + '</span><span class="preset-icons">' +
@@ -533,7 +545,8 @@
 
   /*
    * Lab codes: two digits of colors, then height, empty tubes, trickiness
-   * (0-2), mystery, giant tubes (0-2), and mini tubes + 2 x labeled tubes,
+   * (0-2), mystery, giant tubes (0-2), and mini tubes + 2 x labeled tubes
+   * + 4 x frozen tubes,
    * then the seed, like 08421000-1234. Codes from before trickiness made
    * different puzzles, so they're turned away rather than misread.
    */
@@ -541,7 +554,7 @@
     const m = Core.normalizeModes(spec.modes);
     return (
       String(spec.colors).padStart(2, '0') + spec.cap + spec.empties + trickOf(spec) +
-      (m.mystery ? 1 : 0) + m.giant + ((m.minis ? 1 : 0) + (m.labels ? 2 : 0)) + '-' + spec.seed
+      (m.mystery ? 1 : 0) + m.giant + ((m.minis ? 1 : 0) + (m.labels ? 2 : 0) + (m.ice ? 4 : 0)) + '-' + spec.seed
     );
   }
 
@@ -561,10 +574,11 @@
         giant: +d[6],
         minis: (extra & 1) === 1,
         labels: (extra & 2) === 2,
+        ice: (extra & 4) === 4,
       }),
       seed: +match[2],
     };
-    if (spec.trick > 2 || !/[01]/.test(d[5]) || +d[6] > 2 || extra > 3) return null;
+    if (spec.trick > 2 || !/[01]/.test(d[5]) || +d[6] > 2 || extra > 7) return null;
     if (spec.modes.giant !== +d[6]) return null;
     if (spec.cap < 3 || spec.cap > Core.maxCapFor(spec.modes)) return null;
     if (spec.empties < Core.minEmptiesFor(spec.modes) || spec.empties > Core.maxEmptiesFor(spec.modes)) return null;
@@ -602,6 +616,8 @@
     hint: null,
     hintPending: false,
     loadToken: 0,
+    // Tubes shown as they were while the melt plays (index -> tube).
+    view: {},
     checkToken: 0,
   };
   let tubeEls = [];
@@ -728,7 +744,11 @@
       units,
     };
     game.tubes = Core.cloneTubes(p.tubes);
-    game.hidden = game.tubes.map((t) => (p.mystery ? t.length - Core.topRun(t).count : 0));
+    game.hidden = game.tubes.map((t) => {
+      const layers = Core.layersOf(t);
+      return p.mystery ? layers.length - Core.topRun(layers).count : 0;
+    });
+    game.view = {};
     game.history = [];
     game.selected = -1;
     game.done = false;
@@ -749,7 +769,8 @@
   function normalizeHidden() {
     while (game.hidden.length < game.tubes.length) game.hidden.push(0);
     game.tubes.forEach((t, i) => {
-      game.hidden[i] = Math.max(0, Math.min(game.hidden[i], t.length - Core.topRun(t).count));
+      const layers = Core.layersOf(t);
+      game.hidden[i] = Math.max(0, Math.min(game.hidden[i], layers.length - Core.topRun(layers).count));
     });
   }
 
@@ -798,7 +819,8 @@
     const centerF = list(feat.center);
     const special = new Set(leftF.concat(rightF, centerF));
     const grid = [];
-    for (let i = 0; i < n; i++) if (!special.has(i)) grid.push(i);
+    const gone = (i) => Core.isGone(game.view[i] || game.tubes[i]);
+    for (let i = 0; i < n; i++) if (!special.has(i) && !gone(i)) grid.push(i);
     const tall = (i) => caps[i] * UNIT + NECK; // in tube widths
 
     // The regular tubes form groups: one, or two mirrored ones either side
@@ -918,10 +940,198 @@
     );
   }
 
+  // ---------- Ice ----------
+  //
+  // A frozen tube is encased in a jagged shell of ice tinted the color that
+  // melts it, with icicles hanging off the bottom: wide where they leave the
+  // ice and narrowing, unevenly, to a sharp point. Each tube's ice has its
+  // own shape (seeded by the puzzle and the tube), so it looks grown, not
+  // stamped, and stays the same after an undo. Drawn in units where the
+  // tube is 100 wide.
+
+  function mixHex(hex, other, t) {
+    const a = parseInt(hex.slice(1), 16);
+    const b = parseInt(other.slice(1), 16);
+    const ch = (v, s) => (v >> s) & 255;
+    const m = (s) => Math.round(ch(a, s) + (ch(b, s) - ch(a, s)) * t);
+    return '#' + ((1 << 24) | (m(16) << 16) | (m(8) << 8) | m(0)).toString(16).slice(1);
+  }
+
+  function iceArt(i, c) {
+    const rng = Core.makeRng(Core.hashString('ice:' + (game.puzzle && game.puzzle.seed) + ':' + i));
+    const r = (a, b) => a + (b - a) * rng();
+    const H = (game.board.caps[i] * UNIT + NECK) * 100;
+    const tint = colorOf(c);
+    const light = mixHex(tint, '#ffffff', 0.78);
+    const pale = mixHex(tint, '#ffffff', 0.55);
+    const rim = mixHex(tint, '#ffffff', 0.3);
+    const deep = mixHex(tint, '#1e2a5e', 0.25);
+    const id = 'ice' + i + '-' + Math.floor(rng() * 1e6);
+    const pts = (list) => list.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+
+    // The shell: a chunk of ice around the tube, with big angular faces and
+    // now and then a crystal jutting out. The bottom stays fairly flat so
+    // the icicles read as hanging from it.
+    const left = -14;
+    const right = 114;
+    const top = -12;
+    const bottom = H + 8;
+    const shell = [];
+    const edge = (x0, y0, x1, y1, nx, ny, step, spikes) => {
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      const n = Math.max(2, Math.round(len / step));
+      for (let k = 0; k < n; k++) {
+        const t = (k + (k ? r(-0.25, 0.25) : 0)) / n;
+        const out = rng() < spikes ? r(10, 19) : r(0, 7);
+        shell.push([x0 + (x1 - x0) * t + nx * out, y0 + (y1 - y0) * t + ny * out]);
+      }
+    };
+    edge(left, top, right, top, 0, -1, 24, 0.3);
+    edge(right, top, right, bottom, 1, 0, 26, 0.25);
+    edge(right, bottom, left, bottom, 0, 1, 22, 0.05);
+    edge(left, bottom, left, top, -1, 0, 26, 0.25);
+
+    // Icicles: thick where they leave the ice, narrowing unevenly to a
+    // sharp point, rounded with light on one side and color on the other.
+    const icicles = [];
+    const count = 3 + Math.floor(rng() * 3);
+    for (let k = 0; k < count; k++) {
+      const cx = left + 14 + ((right - left - 28) * (k + r(0.25, 0.75))) / count;
+      const end = k === 0 || k === count - 1;
+      const half = r(9, 16) * (end ? 0.75 : 1);
+      const len = end ? r(20, 38) : r(46, 92);
+      const rootY = bottom - 8;
+      const steps = 6;
+      const lside = [];
+      const rside = [];
+      for (let st = 0; st < steps; st++) {
+        const t = st / steps;
+        const y = rootY + len * t;
+        const wdt = half * Math.pow(1 - t, 0.8) * (st && rng() < 0.35 ? 0.82 : 1);
+        lside.push([cx - wdt + r(-1.2, 1.2), y + r(-1, 1)]);
+        rside.push([cx + wdt + r(-1.2, 1.2), y + r(-1, 1)]);
+      }
+      const tip = [cx + r(-1.5, 1.5), rootY + len];
+      const shine = [
+        [cx - half * 0.55, rootY + 3],
+        [cx - half * 0.25, rootY + 3],
+        [cx - half * 0.05, rootY + len * 0.7],
+        [cx - half * 0.2, rootY + len * 0.72],
+      ];
+      icicles.push({ shape: lside.concat([tip], rside.reverse()), shine });
+    }
+
+    // Faces: big light planes top left, darker colored planes on the right.
+    const facets = [];
+    for (let k = 0; k < 6; k++) {
+      const lightSide = k < 3;
+      const x = lightSide ? r(left + 2, 40) : r(50, right - 26);
+      const y = r(top + 4, bottom - 46);
+      const sz = r(22, 40);
+      facets.push({
+        pts: [[x, y], [x + sz * r(0.7, 1.1), y + r(-8, 12)], [x + r(0, sz * 0.7), y + sz * r(1.1, 1.9)], [x - r(0, 8), y + sz * r(0.6, 1)]],
+        light: lightSide,
+      });
+    }
+    // Long glints down the left side, the way light catches a block of ice.
+    const glints = [];
+    for (let k = 0; k < 2; k++) {
+      const x = r(-8, 4) + k * 10;
+      const y0 = r(top + 6, 24);
+      const y1 = r(H * 0.5, H - 6);
+      glints.push([[x, y0], [x + 3 + k, y0 + 3], [x + 6 + r(0, 3), y1], [x + 2, y1 - 6]]);
+    }
+    // A few bubbles trapped in the ice.
+    const bubbles = [];
+    for (let k = 0; k < 9; k++) bubbles.push([r(left + 8, right - 8), r(top + 10, bottom - 10), r(0.8, 2.6)]);
+    // Hairline cracks, drawn in as the ice starts to melt.
+    const cracks = [];
+    for (let k = 0; k < 4; k++) {
+      let x = r(15, 85);
+      let y = r(top + 4, top + 20);
+      const line = [[x, y]];
+      const hops = 4 + Math.floor(rng() * 3);
+      for (let st = 0; st < hops; st++) {
+        x += r(-14, 14);
+        y += r(10, 26);
+        line.push([x, Math.min(y, bottom)]);
+      }
+      cracks.push(line);
+    }
+
+    // The picture's box, in the same units: the tube is 0 to 100 across and
+    // 0 to H down, so the box lines up with the tube at any size.
+    const vx = left - 22;
+    const vy = top - 22;
+    const vw = right - left + 44;
+    const vh = bottom + 80 - vy;
+    const box = 'left:' + vx + '%;width:' + vw + '%;top:' + (vy / H) * 100 + '%;height:' + (vh / H) * 100 + '%';
+    const emblem = saved.shapes
+      ? '<g transform="translate(36 ' + (top + 2) + ') scale(1.2)" fill="#ffffff" opacity="0.9">' + SHAPES[game.palette[c]] + '</g>'
+      : '';
+    return (
+      '<svg class="ice" style="' + box + '" viewBox="' + [vx, vy, vw, vh].join(' ') + '" preserveAspectRatio="none" aria-hidden="true">' +
+      '<defs>' +
+      '<linearGradient id="' + id + 'b" x1="0" y1="0" x2="1" y2="0.6">' +
+      '<stop offset="0" stop-color="#ffffff" stop-opacity="0.62"/>' +
+      '<stop offset="0.45" stop-color="' + light + '" stop-opacity="0.34"/>' +
+      '<stop offset="1" stop-color="' + pale + '" stop-opacity="0.58"/></linearGradient>' +
+      '<linearGradient id="' + id + 'i" x1="0" y1="0" x2="1" y2="0">' +
+      '<stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>' +
+      '<stop offset="0.5" stop-color="' + light + '" stop-opacity="0.85"/>' +
+      '<stop offset="1" stop-color="' + pale + '" stop-opacity="0.9"/></linearGradient>' +
+      '<clipPath id="' + id + 'c"><polygon points="' + pts(shell) + '"/></clipPath>' +
+      '<filter id="' + id + 'r" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="5"/></filter>' +
+      '<filter id="' + id + 's" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.6"/></filter>' +
+      '</defs>' +
+      '<polygon class="shell" points="' + pts(shell) + '" fill="url(#' + id + 'b)"/>' +
+      '<g clip-path="url(#' + id + 'c)">' +
+      facets
+        .map((f) => '<polygon points="' + pts(f.pts) + '" fill="' + (f.light ? '#ffffff' : deep) + '" opacity="' + (f.light ? 0.16 : 0.09) + '" filter="url(#' + id + 's)"/>')
+        .join('') +
+      bubbles.map((b) => '<circle cx="' + b[0].toFixed(1) + '" cy="' + b[1].toFixed(1) + '" r="' + b[2].toFixed(1) + '" fill="#ffffff" opacity="0.6"/>').join('') +
+      '<rect class="wash" x="' + (left - 20) + '" y="' + (top - 20) + '" width="' + (right - left + 40) + '" height="0" fill="' + tint + '" opacity="0.45"/>' +
+      // Thick, colored edges, where you look through the most ice, under a
+      // frosty white rim.
+      '<polygon points="' + pts(shell) + '" fill="none" stroke="' + rim + '" stroke-opacity="0.5" stroke-width="22" stroke-linejoin="round" filter="url(#' + id + 'r)"/>' +
+      '<polygon points="' + pts(shell) + '" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="7" stroke-linejoin="round" filter="url(#' + id + 's)"/>' +
+      '</g>' +
+      glints.map((g) => '<polygon points="' + pts(g) + '" fill="#ffffff" opacity="0.8"/>').join('') +
+      cracks.map((l) => '<polyline class="crack" points="' + pts(l) + '" pathLength="1"/>').join('') +
+      '<polygon points="' + pts(shell) + '" fill="none" stroke="#ffffff" stroke-opacity="0.95" stroke-width="1.8" stroke-linejoin="round"/>' +
+      icicles
+        .map(
+          (k) =>
+            '<polygon class="icicle" points="' + pts(k.shape) + '" fill="url(#' + id + 'i)" stroke="#ffffff" stroke-opacity="0.9" stroke-width="1.3" stroke-linejoin="round"/>' +
+            '<polygon points="' + pts(k.shine) + '" fill="#ffffff" opacity="0.85"/>'
+        )
+        .join('') +
+      emblem +
+      '</svg>'
+    );
+  }
+
+  function renderIce(i, c) {
+    const el = tubeEls[i];
+    let ice = el.querySelector('.ice');
+    el.classList.toggle('frozen', c >= 0);
+    if (c < 0) {
+      if (ice) ice.remove();
+      return;
+    }
+    const key = c + ':' + (saved.shapes ? 1 : 0);
+    if (ice && ice.dataset.key === key) return;
+    if (ice) ice.remove();
+    el.insertAdjacentHTML('beforeend', iceArt(i, c));
+    el.lastElementChild.dataset.key = key;
+  }
+
   function describe(i) {
-    const t = game.tubes[i];
+    const ice = Core.iceOf(game.tubes[i]);
+    const t = Core.layersOf(game.tubes[i]);
     const label = game.board.labels ? game.board.labels[i] : -1;
-    const name = 'Tube ' + (i + 1) + (label >= 0 ? ', takes only ' + nameOf(label) : '');
+    const name =
+      'Tube ' + (i + 1) + (label >= 0 ? ', takes only ' + nameOf(label) : '') + (ice >= 0 ? ', frozen until ' + nameOf(ice) + ' is finished' : '');
     if (!t.length) return name + ', empty';
     if (Core.isSealed(t, game.board)) return name + ', finished, all ' + nameOf(t[0]);
     const names = t.map((c, k) => (k < game.hidden[i] ? 'mystery' : nameOf(c)));
@@ -930,7 +1140,11 @@
 
   function renderTube(i) {
     const el = tubeEls[i];
-    const tube = game.tubes[i];
+    const shown = game.view[i] || game.tubes[i];
+    // A sample used up melting ice has left the board.
+    el.hidden = Core.isGone(shown);
+    renderIce(i, Core.iceOf(shown));
+    const tube = Core.layersOf(shown);
     const hidden = game.hidden[i] || 0;
     const segs = [];
     for (let k = 0; k < tube.length; k++) {
@@ -940,7 +1154,8 @@
       else segs.push({ color: tube[k], n: 1, hidden: isHidden });
     }
     el.querySelector('.liquid').innerHTML = segs.map((s, si) => segHtml(s, si === segs.length - 1)).join('');
-    const sealed = Core.isSealed(tube, game.board);
+    // A sample about to melt ice never gets its cap: it pours itself out.
+    const sealed = Core.isSealed(tube, game.board) && !game.view[i];
     el.classList.toggle('sealed', sealed);
     if (sealed) el.style.setProperty('--seal', colorOf(tube[0]));
     const label = game.board.labels ? game.board.labels[i] : -1;
@@ -997,6 +1212,17 @@
     Sound.oops();
   }
 
+  // A frozen tube shimmers and says what melts it.
+  function frosty(i) {
+    const ice = tubeEls[i].querySelector('.ice');
+    if (ice) {
+      ice.classList.remove('shimmer');
+      void ice.getBoundingClientRect();
+      ice.classList.add('shimmer');
+    }
+    nudge(i, 'Frozen! Finish ' + nameOf(Core.iceOf(game.tubes[i])) + ' to melt the ice.');
+  }
+
   function onTube(i) {
     if (game.busy || game.done || !game.puzzle) return;
     if (game.stuck) {
@@ -1011,6 +1237,7 @@
     const sel = game.selected;
     if (sel < 0) {
       const t = game.tubes[i];
+      if (Core.iceOf(t) >= 0) return frosty(i);
       if (!t.length) return nudge(i, 'That tube is empty. Pick one with liquid in it!');
       if (Core.isSealed(t, game.board)) return nudge(i, 'That tube is already finished!');
       select(i);
@@ -1025,6 +1252,7 @@
     const problem = Core.pourProblem(game.tubes, game.board, sel, i);
     if (problem) {
       deselect();
+      if (problem === 'frozen') return frosty(i);
       if (problem === 'mismatch') return nudge(i, 'Colors must match! Pour onto the same color or into an empty tube.');
       if (problem === 'sealed') return nudge(i, 'That tube is already finished!');
       if (problem === 'label') return nudge(i, 'That tube only takes ' + nameOf(game.board.labels[i]) + '!');
@@ -1046,14 +1274,24 @@
     const color = game.tubes[f][game.tubes[f].length - 1];
     const dstBefore = game.tubes[t].length;
     game.history.push({ tubes: Core.cloneTubes(game.tubes) });
+    const prev = game.history[game.history.length - 1].tubes;
     const k = Core.pour(game.tubes, game.board, f, t);
     game.moves++;
+    // Finishing the color of some ice: until the melt plays out, keep showing
+    // the sample full and the ice frozen.
+    const melted = Core.isGone(game.tubes[t])
+      ? prev.map((_, i) => i).filter((i) => Core.iceOf(prev[i]) >= 0 && Core.iceOf(game.tubes[i]) < 0)
+      : [];
+    if (melted.length) {
+      game.view[t] = prev[t].concat(Array(k).fill(color));
+      melted.forEach((j) => (game.view[j] = prev[j]));
+    }
     // Saved before the animation, so leaving mid-pour keeps the pour.
     normalizeHidden();
     saveRun();
     game.selected = -1;
     updateHud();
-    Sound.pour(k, game.tubes[t].length / game.board.caps[t]);
+    Sound.pour(k, (game.view[t] || game.tubes[t]).length / game.board.caps[t]);
     try {
       await animatePour(f, t, k, color, dstBefore);
     } catch (e) {
@@ -1065,7 +1303,19 @@
     normalizeHidden();
     renderTube(f);
     renderTube(t);
-    if (Core.isSealed(game.tubes[t], game.board)) celebrateSeal(t);
+    if (melted.length) {
+      try {
+        await meltScene(t, melted, color, token);
+      } catch (e) {
+        /* an interrupted show only skips the show */
+      }
+      if (token !== game.loadToken) return;
+      game.view = {};
+      renderTube(t);
+      melted.forEach(renderTube);
+      layout();
+      say('The ice melted!');
+    } else if (Core.isSealed(game.tubes[t], game.board)) celebrateSeal(t);
     game.busy = false;
     if (needsLayout) {
       needsLayout = false;
@@ -1172,8 +1422,13 @@
     return shapeImages[s];
   }
 
-  function animatePour(f, t, k, color, dstBefore) {
-    if (reduceMotion || !positions[f] || !positions[t]) return Promise.resolve();
+  // opts.over pours over the outside of tube t (its ice) instead of into it,
+  // calling opts.onLand with the share landed so far; opts.stay leaves the
+  // tube tipped where it finished and resolves with that pose.
+  function animatePour(f, t, k, color, dstBefore, opts) {
+    opts = opts || {};
+    const over = !!opts.over;
+    if (reduceMotion || !positions[f] || !positions[t]) return Promise.resolve(null);
     const token = game.loadToken;
     const el = tubeEls[f];
     const src = positions[f];
@@ -1228,10 +1483,12 @@
     [tiltStart, (tiltStart + tiltEnd) / 2, tiltEnd].forEach((a) => {
       outline.forEach((p) => {
         const q = turn([p[0] - lip[0], p[1] - lip[1]], a);
-        if (Math.abs(q[0]) < dst.w * 0.62) below = Math.max(below, q[1]);
+        if (Math.abs(q[0]) < dst.w * (over ? 0.85 : 0.62)) below = Math.max(below, q[1]);
       });
     });
-    const stream = [dst.x + dst.w / 2, dst.y - Math.min(w * 1.5, Math.max(w * 0.45, below + w * 0.18))];
+    // Over ice, the top of the ice is the target's top.
+    const top = over ? dst.y - w * 0.12 : dst.y;
+    const stream = [dst.x + dst.w / 2, top - Math.min(w * 1.5, Math.max(w * 0.45, below + w * 0.18))];
     const shift = (a) => {
       const q = turn([lip[0] - origin[0], lip[1] - origin[1]], a);
       return [stream[0] - src.x - origin[0] - q[0], stream[1] - src.y - origin[1] - q[1]];
@@ -1339,15 +1596,18 @@
     // The target's top layer grows as the liquid lands.
     const dstGlass = tubeEls[t].querySelector('.glass');
     const dstLiquid = dstGlass.querySelector('.liquid');
-    let dstTop = dstLiquid.lastElementChild;
+    let dstTop = null;
     let m0 = 0;
-    if (dstTop && dstTop.dataset.color === String(color)) m0 = Number(dstTop.style.getPropertyValue('--n')) || 0;
-    else {
-      if (dstTop) dstTop.classList.remove('top');
-      dstLiquid.insertAdjacentHTML('beforeend', segHtml({ color, n: k, hidden: false }, true));
+    if (!over) {
       dstTop = dstLiquid.lastElementChild;
+      if (dstTop && dstTop.dataset.color === String(color)) m0 = Number(dstTop.style.getPropertyValue('--n')) || 0;
+      else {
+        if (dstTop) dstTop.classList.remove('top');
+        dstLiquid.insertAdjacentHTML('beforeend', segHtml({ color, n: k, hidden: false }, true));
+        dstTop = dstLiquid.lastElementChild;
+      }
+      dstTop.style.height = m0 * unit + 'px';
     }
-    dstTop.style.height = m0 * unit + 'px';
 
     // The stream: one piece above the target, and one inside its glass
     // (behind its label and shine) that runs down to the surface.
@@ -1363,7 +1623,8 @@
     [outside, inside, splash].forEach((d) => (d.style.background = colorOf(color)));
     board.appendChild(outside);
     dstGlass.appendChild(inside);
-    dstGlass.appendChild(splash);
+    // Over ice, the splash sits on top of the ice, out on the board.
+    (over ? board : dstGlass).appendChild(splash);
     const maxWidth = Math.max(5, w * 0.2);
     const showStream = (head, tail, width, landing) => {
       // head and tail are board heights; head is the lower end.
@@ -1376,14 +1637,16 @@
         d.style.height = Math.max(0, bottom - top) + 'px';
         d.style.borderRadius = width / 2 + 'px';
       };
-      show(outside, tail, Math.min(head, dst.y + w * 0.06), x);
-      show(inside, Math.max(tail, glassTop) - glassTop, head - glassTop, x - glassLeft);
+      show(outside, tail, over ? head : Math.min(head, dst.y + w * 0.06), x);
+      show(inside, Math.max(tail, glassTop) - glassTop, over ? 0 : head - glassTop, x - glassLeft);
       splash.style.display = landing ? 'block' : 'none';
       if (landing) {
         const sw = width * 2.4;
         const sh = Math.max(3, width * 0.55);
-        splash.style.left = x - glassLeft + width / 2 - sw / 2 + 'px';
-        splash.style.top = head - glassTop - sh / 2 + 'px';
+        const ox = over ? 0 : glassLeft;
+        const oy = over ? 0 : glassTop;
+        splash.style.left = x - ox + width / 2 - sw / 2 + 'px';
+        splash.style.top = head - oy - sh / 2 + 'px';
         splash.style.width = sw + 'px';
         splash.style.height = sh + 'px';
       }
@@ -1395,9 +1658,9 @@
     const RUN = Math.min(760, 240 + 85 * k);
     const BACK = 280;
     // The surface sits on everything in the target, not just its top color.
-    const surfaceAt = (units) => glassTop + dstH - units * unit;
+    const surfaceAt = (units) => (over ? top : glassTop + dstH - units * unit);
     const fallTime = Math.max(80, Math.min(170, 50 + (22 * (surfaceAt(dstBefore) - stream[1])) / w));
-    const total = TIP + RUN + Math.max(BACK, fallTime);
+    const total = TIP + RUN + (opts.stay ? fallTime : Math.max(BACK, fallTime));
     const flow = (ms) => easeInOut(clamp01(ms / RUN));
     const fall = (ms) => clamp01(ms / fallTime) ** 2;
     const pose = (sh, a) => 'translate(' + sh[0] + 'px, ' + sh[1] + 'px) rotate(' + a + 'rad)';
@@ -1405,16 +1668,19 @@
     el.classList.add('pouring');
     return new Promise((resolve) => {
       const start = performance.now();
+      let last = null;
       const finish = () => {
         canvas.remove();
         outside.remove();
         inside.remove();
         splash.remove();
         liquidEl.style.visibility = '';
-        el.style.transform = '';
         el.classList.remove('lifted');
-        el.classList.remove('pouring');
-        resolve();
+        if (!opts.stay) {
+          el.style.transform = '';
+          el.classList.remove('pouring');
+        }
+        resolve(last);
       };
       const frame = () => {
         if (token !== game.loadToken || !el.isConnected) return finish();
@@ -1432,17 +1698,19 @@
           sh = shift(angle);
         } else {
           units = n0 - k;
-          const p = easeInOut(clamp01((ms - TIP - RUN) / BACK));
+          const p = opts.stay ? 0 : easeInOut(clamp01((ms - TIP - RUN) / BACK));
           angle = tiltEnd * (1 - p);
           sh = [shiftEnd[0] * (1 - p), shiftEnd[1] * (1 - p)];
         }
         el.style.transform = pose(sh, angle);
+        last = { sh, angle };
         drawSource(units, angle);
 
         // The liquid reaches the target one fall later than it leaves.
         const run = ms - TIP;
         const landed = k * flow(run - fallTime);
-        dstTop.style.height = (m0 + landed) * unit + 'px';
+        if (dstTop) dstTop.style.height = (m0 + landed) * unit + 'px';
+        if (opts.onLand && run > fallTime) opts.onLand(landed / k);
         const surface = surfaceAt(dstBefore + landed);
         if (run <= 0) showStream(0, 0, 0, false);
         else {
@@ -1454,14 +1722,248 @@
         }
         if (ms >= total) {
           // Draw the final state before the pieces come off, so nothing flickers.
+          if (opts.stay) game.view[f] = [];
           renderTube(f);
-          renderTube(t);
+          if (!over) renderTube(t);
           return finish();
         }
         requestAnimationFrame(frame);
       };
       requestAnimationFrame(frame);
     });
+  }
+
+  // ---------- Melting ice ----------
+  //
+  // When a pour finishes the color of some ice, the finished sample puts on
+  // a show: it pulses, glides over to the ice, and pours itself over the
+  // outside of it. The ice cracks, shatters, and melts away. Then the empty
+  // sample winds up like a rubber band and flings itself off the board.
+  // The rules already melted the ice and used the sample up; game.view keeps
+  // both looking as they were until the show reaches them.
+  async function meltScene(t, melted, color, token) {
+    const el = tubeEls[t];
+    const live = () => token === game.loadToken && el.isConnected;
+    if (reduceMotion || !positions[t]) return;
+    const w = positions[t].w;
+    const glow = colorOf(color);
+
+    // 1. The finished sample charges up.
+    Sound.charge();
+    el.style.transformOrigin = '50% 75%';
+    await el
+      .animate(
+        [
+          { transform: 'scale(1)', filter: 'drop-shadow(0 0 0px ' + glow + ')' },
+          { transform: 'scale(1.13)', filter: 'drop-shadow(0 0 ' + w * 0.4 + 'px ' + glow + ')' },
+          { transform: 'scale(1)', filter: 'drop-shadow(0 0 ' + w * 0.12 + 'px ' + glow + ')' },
+        ],
+        { duration: 420, iterations: 3, easing: 'ease-in-out' }
+      )
+      .finished.catch(() => {});
+    el.style.transformOrigin = '';
+    if (!live()) return;
+
+    // 2. It lifts, glides over to the ice, and pours itself over it.
+    const lifted = 'translate(0px, ' + -w * 0.36 + 'px)';
+    await el.animate([{ transform: 'none' }, { transform: lifted }], { duration: 220, easing: 'ease-out', fill: 'forwards' }).finished.catch(() => {});
+    el.style.transform = lifted;
+    el.getAnimations().forEach((a) => a.cancel());
+    if (!live()) return;
+    const j = melted[0];
+    const fx = meltFx(j, color, token);
+    const units = (game.view[t] || []).length;
+    Sound.pour(units, 0.2);
+    const end = await animatePour(t, j, units, color, 0, { over: true, stay: true, onLand: fx.progress });
+    fx.shatter();
+    melted.slice(1).forEach((m) => meltFx(m, color, token).shatter());
+    if (!live() || !end) return;
+
+    // 3. Wind up like a rubber band, then fling off the board.
+    await fling(el, end);
+    el.hidden = true;
+    el.style.transform = '';
+    el.classList.remove('pouring');
+  }
+
+  // Steam, a wash of color down the ice, and cracks, driven by how much of
+  // the sample has landed; then the ice shatters into falling shards.
+  function meltFx(j, color, token) {
+    const el = tubeEls[j];
+    const ice = el.querySelector('.ice');
+    const p = positions[j];
+    let cracked = false;
+    let shattered = false;
+    let lastSteam = 0;
+    const wash = ice && ice.querySelector('.wash');
+    const cracks = ice ? Array.from(ice.querySelectorAll('.crack')) : [];
+    const box = ice && ice.viewBox.baseVal;
+    const fx = {
+      progress(f) {
+        if (!ice || shattered || token !== game.loadToken) return;
+        if (wash) wash.setAttribute('height', String(Math.max(0, f * (box.height + 20))));
+        cracks.forEach((c, k) => c.style.setProperty('stroke-dashoffset', String(1 - clamp01(f * 1.8 - k * 0.15))));
+        if (f > 0.25 && !cracked) {
+          cracked = true;
+          Sound.crack();
+        }
+        const now = performance.now();
+        if (f > 0 && f < 1 && now - lastSteam > 70) {
+          lastSteam = now;
+          puff(p.x + p.w * (0.3 + Math.random() * 0.4), p.y - p.w * 0.1, p.w);
+        }
+        if (f >= 0.8) fx.shatter();
+      },
+      shatter() {
+        if (shattered || token !== game.loadToken) return;
+        shattered = true;
+        Sound.crack();
+        // The thawed tube shows through as the old ice breaks away.
+        delete game.view[j];
+        if (ice) {
+          ice.classList.replace('ice', 'ice-melting');
+          ice
+            .animate(
+              [
+                { opacity: 1, transform: 'none', filter: 'blur(0px)' },
+                { opacity: 0, transform: 'translateY(6%) scale(1.04, 0.96)', filter: 'blur(3px)' },
+              ],
+              { duration: 560, easing: 'ease-in', fill: 'forwards' }
+            )
+            .finished.then(() => ice.remove(), () => ice.remove());
+        }
+        renderTube(j);
+        if (!p) return;
+        const tint = colorOf(color);
+        for (let k = 0; k < 16; k++) shard(p, tint);
+        for (let k = 0; k < 5; k++) drip(p, tint);
+      },
+    };
+    return fx;
+  }
+
+  function puff(x, y, w) {
+    const d = document.createElement('span');
+    d.className = 'steam';
+    const size = w * (0.25 + Math.random() * 0.2);
+    d.style.left = x - size / 2 + 'px';
+    d.style.top = y - size / 2 + 'px';
+    d.style.width = d.style.height = size + 'px';
+    board.appendChild(d);
+    d.animate(
+      [
+        { opacity: 0.85, transform: 'translate(0, 0) scale(0.6)' },
+        { opacity: 0, transform: 'translate(' + (Math.random() - 0.5) * w * 0.5 + 'px, ' + -w * (0.7 + Math.random() * 0.5) + 'px) scale(1.6)' },
+      ],
+      { duration: 700 + Math.random() * 300, easing: 'ease-out' }
+    ).finished.then(() => d.remove(), () => d.remove());
+  }
+
+  // A jagged chip of ice that bursts off, tumbles, and falls.
+  function shard(p, tint) {
+    const d = document.createElement('span');
+    d.className = 'shard';
+    const size = p.w * (0.22 + Math.random() * 0.3);
+    const pts = [];
+    const sides = 4 + Math.floor(Math.random() * 3);
+    for (let k = 0; k < sides; k++) {
+      const a = (Math.PI * 2 * k) / sides + Math.random() * 0.6;
+      const r = 50 * (0.5 + Math.random() * 0.5);
+      pts.push((50 + Math.cos(a) * r).toFixed(0) + '% ' + (50 + Math.sin(a) * r).toFixed(0) + '%');
+    }
+    d.style.clipPath = 'polygon(' + pts.join(',') + ')';
+    d.style.width = d.style.height = size + 'px';
+    const x0 = p.x + p.w * (0.5 + (Math.random() - 0.5) * 1.3);
+    const y0 = p.y + p.h * (0.1 + Math.random() * 0.8);
+    d.style.left = x0 - size / 2 + 'px';
+    d.style.top = y0 - size / 2 + 'px';
+    d.style.setProperty('--tint', tint);
+    board.appendChild(d);
+    // Out from the middle of the ice, up a little, then down with gravity.
+    const side = x0 < p.x + p.w / 2 ? -1 : 1;
+    const dx = side * p.w * (0.6 + Math.random() * 1.6);
+    const up = p.w * (0.3 + Math.random() * 0.8);
+    const fall = p.w * (2 + Math.random() * 2.5);
+    const spin = (Math.random() - 0.5) * 540;
+    d.animate(
+      [
+        { transform: 'translate(0, 0) rotate(0deg) scale(1)', opacity: 1 },
+        { transform: 'translate(' + dx * 0.45 + 'px, ' + -up + 'px) rotate(' + spin * 0.3 + 'deg) scale(1)', opacity: 1, offset: 0.3 },
+        { transform: 'translate(' + dx + 'px, ' + fall + 'px) rotate(' + spin + 'deg) scale(0.7)', opacity: 0 },
+      ],
+      { duration: 900 + Math.random() * 400, easing: 'cubic-bezier(.3,0,.7,.7)' }
+    ).finished.then(() => d.remove(), () => d.remove());
+  }
+
+  function drip(p, tint) {
+    const d = document.createElement('span');
+    d.className = 'drip';
+    const size = p.w * 0.09;
+    d.style.width = size + 'px';
+    d.style.height = size * 1.35 + 'px';
+    d.style.left = p.x + Math.random() * p.w - size / 2 + 'px';
+    d.style.top = p.y + p.h + p.w * 0.1 + 'px';
+    d.style.setProperty('--tint', tint);
+    board.appendChild(d);
+    d.animate(
+      [
+        { transform: 'translateY(0)', opacity: 1 },
+        { transform: 'translateY(' + p.w * (0.8 + Math.random()) + 'px)', opacity: 0 },
+      ],
+      { duration: 500 + Math.random() * 400, delay: Math.random() * 250, easing: 'ease-in', fill: 'backwards' }
+    ).finished.then(() => d.remove(), () => d.remove());
+  }
+
+  // The rubber band: the empty sample rocks back and squashes down like a
+  // spring being pulled, holds for a beat, then snaps loose, stretching as
+  // it launches in a spinning arc over the board and off the far side.
+  async function fling(el, end) {
+    const w = parseFloat(el.style.width) || 40;
+    const [sx, sy] = end.sh;
+    const a = end.angle;
+    const baseX = parseFloat(el.style.left) || 0;
+    // Toward the side with more room, so the arc is long enough to enjoy.
+    const out = baseX + sx + w / 2 < board.clientWidth / 2 ? 1 : -1;
+    const pose = (x, y, r, scx, scy) =>
+      'translate(' + x + 'px, ' + y + 'px) rotate(' + r + 'rad) scale(' + (scx || 1) + ', ' + (scy || 1) + ')';
+    // Local y runs along the tube, so scale(wide, short) is a squash. The
+    // pull-back stays on the board.
+    const room = out > 0 ? baseX + sx : board.clientWidth - (baseX + sx + w);
+    const back = [sx - out * Math.min(w * 0.7, Math.max(0, room - w * 0.3)), sy + w * 0.7];
+    const lean = -out * 0.45;
+    await el
+      .animate(
+        [
+          { transform: pose(sx, sy, a) },
+          { transform: pose(back[0], back[1], lean, 1.18, 0.74), offset: 0.7 },
+          { transform: pose(back[0] - out * w * 0.04, back[1] + w * 0.03, lean - out * 0.04, 1.22, 0.7), offset: 0.85 },
+          { transform: pose(back[0], back[1], lean, 1.2, 0.72) },
+        ],
+        { duration: 520, easing: 'cubic-bezier(.25,.8,.35,1)', fill: 'forwards' }
+      )
+      .finished.catch(() => {});
+    Sound.boing();
+    // Up and over, leaving off the far side above the tubes, with the top
+    // of the arc kept on the board so the whole flight shows.
+    const baseY = parseFloat(el.style.top) || 0;
+    const startX = baseX + back[0];
+    const reach = (out > 0 ? board.clientWidth - startX : startX + w) + w * 3;
+    const startY = baseY + back[1];
+    const peak = Math.max(w, Math.min(board.clientHeight * 0.3, startY - w * 0.8));
+    const rise = 0;
+    const frames = [];
+    const steps = 18;
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      const x = back[0] + out * reach * t;
+      const y = back[1] - peak * 4 * t * (1 - t) - rise * t;
+      // Snaps from the squash into a stretch, then settles as it flies.
+      const stretch = k === 0 ? [1.2, 0.72] : k === 1 ? [0.8, 1.3] : k === 2 ? [0.92, 1.1] : [1, 1];
+      frames.push({ transform: pose(x, y, lean + out * Math.PI * 5 * t, stretch[0], stretch[1]) });
+    }
+    el.getAnimations().forEach((x) => x.cancel());
+    await el.animate(frames, { duration: 1050, easing: 'linear', fill: 'forwards' }).finished.catch(() => {});
+    el.getAnimations().forEach((x) => x.cancel());
   }
 
   function celebrateSeal(i) {
@@ -1555,6 +2057,8 @@
     game.undone++;
     normalizeHidden();
     renderAll();
+    // Undoing a melt brings the used-up sample back onto the board.
+    layout();
     updateHud();
     Sound.whoosh();
     if (!wasStuck) say('Undone!');
@@ -1897,6 +2401,7 @@
     );
     $('modeMinis').addEventListener('change', (e) => setMode({ minis: e.target.checked }));
     $('modeLabels').addEventListener('change', (e) => setMode({ labels: e.target.checked }));
+    $('modeIce').addEventListener('change', (e) => setMode({ ice: e.target.checked }));
     $('customBtn').addEventListener('click', () => show('custom'));
     $('homeBtn').addEventListener('click', () => {
       game.loadToken++;
