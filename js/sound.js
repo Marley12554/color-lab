@@ -100,21 +100,12 @@
     whoosh() {
       tone(300, 0, 0.25, { to: 900, gain: 0.08, type: 'triangle' });
     },
-    // A finished sample charging up: three rising pulses, one per glow.
-    charge() {
-      [523, 659, 784].forEach((f, i) => tone(f, i * 0.42, 0.24, { type: 'triangle', gain: 0.14, to: f * 1.12 }));
-    },
     // Ice cracking: a quick spray of high, falling clicks.
     crack() {
       for (let i = 0; i < 7; i++) {
         const f = 2200 - i * 190 + Math.random() * 260;
         tone(f, i * 0.028, 0.05, { type: 'square', gain: 0.045, to: f * 0.6 });
       }
-    },
-    // A rubber band snapping: a quick rising twang, then a whoosh.
-    boing() {
-      tone(150, 0, 0.3, { type: 'triangle', gain: 0.16, to: 460 });
-      tone(320, 0.18, 0.35, { to: 1100, gain: 0.07, type: 'triangle' });
     },
   };
 
