@@ -6,12 +6,14 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
   const errors = [];
   let failures = 0;
   const check = (ok, msg) => { if (!ok) { failures++; console.log('FAIL', msg); } };
+  // Saved progress with levels 1 to n - 1 finished, so Play opens level n.
+  const progressTo = (n) => ({ stars: Object.fromEntries(Array.from({ length: n - 1 }, (_, i) => [i + 1, 1])), sound: false });
   async function open(level) {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
     const p = await ctx.newPage();
     p.on('pageerror', (e) => errors.push(String(e)));
     p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    await p.addInitScript((n) => localStorage.setItem('color-lab-v1', JSON.stringify({ unlocked: n, sound: false })), level);
+    await p.addInitScript((s) => localStorage.setItem('color-lab-v1', JSON.stringify(s)), progressTo(level));
     await p.goto(url);
     await p.click('#playBtn');
     await p.waitForSelector('.tube');
@@ -106,8 +108,8 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await p.waitForSelector('#win:not([hidden])', { timeout: 5000 });
     const stars = await p.locator('#winStars i.on').count();
     const saved = await p.evaluate(() => JSON.parse(localStorage.getItem('color-lab-v1')));
-    console.log(`level ${level}: won in ${await moves(p)} moves, ${stars} stars, unlocked ${saved.unlocked}`);
-    check(saved.unlocked === level + 1, `level ${level} unlocks the next`);
+    console.log(`level ${level}: won in ${await moves(p)} moves, ${stars} stars`);
+    check(saved.stars[level] === stars, `level ${level} saves its stars`);
     // Level 31 finishes one pour over the robot's count, inside the 3-star leeway.
     check(level === 12 ? stars === 2 : stars === 3, `level ${level} stars`);
     if (level === 2) {
@@ -313,17 +315,34 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await ctx.close();
   }
 
+  // Play continues in order: beating a far-off level doesn't move it, and the
+  // map doesn't grow to reach that level.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const q = await ctx.newPage();
+    q.on('pageerror', (e) => errors.push(String(e)));
+    await q.addInitScript(() => localStorage.setItem('color-lab-v1', JSON.stringify({ stars: { 1: 3, 2: 2, 3: 3, 5: 1, 10000: 3 }, sound: false })));
+    await q.goto(url);
+    const sub = await q.textContent('#playSub');
+    check(sub.startsWith('Experiment 4 '), `Play offers the first unfinished level (${sub})`);
+    await q.click('#levelsBtn');
+    const buttons = await q.locator('.level-btn').count();
+    check(buttons < 200, `map stays short after a far-off win (${buttons} levels)`);
+    check((await q.textContent('.level-btn.current')).startsWith('4'), 'map marks the first unfinished level');
+    await ctx.close();
+  }
+
   // Pause and resume, and boards that differ from mix to mix.
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
     const q = await ctx.newPage();
     q.on('pageerror', (e) => errors.push(String(e)));
-    await q.addInitScript(() => {
+    await q.addInitScript((s) => {
       if (!sessionStorage.getItem('seeded')) {
         sessionStorage.setItem('seeded', '1');
-        localStorage.setItem('color-lab-v1', JSON.stringify({ unlocked: 5, sound: false }));
+        localStorage.setItem('color-lab-v1', JSON.stringify(s));
       }
-    });
+    }, progressTo(5));
     await q.goto(url);
     const labels = () => q.evaluate(() => [...document.querySelectorAll('.tube')].map((t) => t.getAttribute('aria-label')).join('|'));
     // Two pours on level 5, then home: Play says resume and brings it back.
@@ -376,7 +395,7 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const q = await ctx.newPage();
     q.on('pageerror', (e) => errors.push(String(e)));
-    await q.addInitScript(() => localStorage.setItem('color-lab-v1', JSON.stringify({ unlocked: 1, sound: false })));
+    await q.addInitScript((s) => localStorage.setItem('color-lab-v1', JSON.stringify(s)), progressTo(1));
     await q.goto(url);
     await q.click('#playBtn');
     await q.waitForSelector('.tube.hint-from');

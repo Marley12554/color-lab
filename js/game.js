@@ -109,7 +109,6 @@
 
   function defaults() {
     return {
-      unlocked: 1,
       stars: {},
       best: {},
       sound: true,
@@ -191,7 +190,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=530737fef1');
+        worker = new Worker('js/worker.js?v=c41e4abd87');
       }
     } catch (e) {
       worker = null;
@@ -262,8 +261,16 @@
     document.documentElement.style.setProperty('--lab', labColor(index));
   }
 
+  // Play continues from the first level not yet finished, so levels played
+  // out of order (from the map or the jump box) don't move it.
+  function nextLevel() {
+    let n = 1;
+    while (saved.stars[n]) n++;
+    return n;
+  }
+
   function renderHome() {
-    const n = saved.unlocked;
+    const n = nextLevel();
     const lab = Core.labOf(n);
     const run = saved.run;
     // A run of the level Play would start is resumed by Play itself.
@@ -286,7 +293,8 @@
   function renderLevels() {
     const list = $('labList');
     list.innerHTML = '';
-    const lastLab = Math.max(Core.LAB_COUNT, Core.labOf(saved.unlocked).index + 2) - 1 + extraLabs;
+    const next = nextLevel();
+    const lastLab = Math.max(Core.LAB_COUNT, Core.labOf(next).index + 2) - 1 + extraLabs;
     for (let i = 0; i <= lastLab; i++) {
       const first = i * 10 + 1;
       const lab = Core.labOf(first);
@@ -303,7 +311,7 @@
         btn.type = 'button';
         const spec = Core.levelSpec(n);
         const special = !!spec.modes && Core.hasBoardModes(spec.modes);
-        btn.className = 'level-btn' + (n === saved.unlocked ? ' current' : '') + (special ? ' special' : '');
+        btn.className = 'level-btn' + (n === next ? ' current' : '') + (special ? ' special' : '');
         const stars = saved.stars[n] || 0;
         btn.innerHTML =
           '<span>' + n + '</span><span class="mini-stars">' +
@@ -1721,7 +1729,6 @@
       const n = game.level;
       saved.stars[n] = Math.max(saved.stars[n] || 0, stars);
       saved.best[n] = saved.best[n] ? Math.min(saved.best[n], moves) : moves;
-      saved.unlocked = Math.max(saved.unlocked, n + 1);
       save();
     }
     updateHud();
@@ -1840,7 +1847,7 @@
     document.querySelector('#tubeBtn .tool-icon').innerHTML = ICONS.tube;
 
     document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => show(b.dataset.go)));
-    $('playBtn').addEventListener('click', () => startLevel(saved.unlocked));
+    $('playBtn').addEventListener('click', () => startLevel(nextLevel()));
     $('resumeBtn').addEventListener('click', () => saved.run && resumeRun(saved.run));
 
     // Every button and switch outside the board makes a sound: Play and
@@ -2064,7 +2071,7 @@
     setSound(saved.sound);
     setShapes(saved.shapes);
     startWorker();
-    getLevel(saved.unlocked).catch(() => {});
+    getLevel(nextLevel()).catch(() => {});
     const g = data && data.game;
     if (g && g.puzzle) {
       resumeRun(g);
