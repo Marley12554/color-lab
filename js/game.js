@@ -192,7 +192,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=32db550a8d');
+        worker = new Worker('js/worker.js?v=10e7f1ce64');
       }
     } catch (e) {
       worker = null;
@@ -784,7 +784,9 @@
     el.type = 'button';
     el.className = 'tube';
     el.innerHTML =
-      '<span class="glass"><span class="liquid"></span></span><span class="tag"><i></i></span><span class="lip"></span><span class="stopper"></span>';
+      '<span class="glass"><span class="liquid"></span></span><span class="tag"><i></i></span><span class="lip"></span><span class="stopper"></span>' +
+      '<span class="giant-hint" aria-hidden="true"><svg viewBox="0 0 16 16"><rect x="1.5" y="0.5" width="6" height="15" rx="3"/>' +
+      '<rect x="9.5" y="7" width="5" height="8.5" rx="2.5" fill="none" stroke-width="1.6"/></svg></span>';
     el.addEventListener('click', () => onTube(i));
     return el;
   }
@@ -1197,6 +1199,7 @@
       'Tube ' + (i + 1) + (label >= 0 ? ', takes only ' + nameOf(label) : '') + (ice >= 0 ? ', frozen until ' + nameOf(ice) + ' is finished' : '');
     if (!t.length) return name + ', empty';
     if (Core.isSealed(t, game.board)) return name + ', finished, all ' + nameOf(t[0]);
+    if (needsGiant(i, t)) return name + ', full of ' + nameOf(t[0]) + ', which goes in a giant tube';
     const names = t.map((c, k) => (k < game.hidden[i] ? 'mystery' : nameOf(c)));
     return name + ', bottom to top: ' + names.join(', ');
   }
@@ -1220,6 +1223,12 @@
     // A sample about to melt ice never gets its cap: it pours itself out.
     const sealed = Core.isSealed(tube, game.board) && !game.view[i];
     el.classList.toggle('sealed', sealed);
+    // A regular tube full of a double color looks finished but isn't: that
+    // color goes in a giant tube. A small giant-tube badge sits where the
+    // cap would be.
+    const giant = needsGiant(i, tube);
+    el.classList.toggle('needs-giant', giant);
+    if (giant) el.style.setProperty('--seal', colorOf(tube[0]));
     if (sealed) el.style.setProperty('--seal', colorOf(tube[0]));
     const label = game.board.labels ? game.board.labels[i] : -1;
     el.classList.toggle('labeled', label >= 0);
@@ -1230,6 +1239,17 @@
         : '';
     }
     el.setAttribute('aria-label', describe(i));
+  }
+
+  function needsGiant(i, tube) {
+    const big = game.board.big || [];
+    return (
+      tube.length > 0 &&
+      tube.length === game.board.caps[i] &&
+      game.board.caps[i] === game.board.units &&
+      big.includes(tube[0]) &&
+      tube.every((c) => c === tube[0])
+    );
   }
 
   function renderAll() {
@@ -1380,6 +1400,12 @@
       if (!swept) glideLayout();
       say('The ice melted.');
     } else if (Core.isSealed(game.tubes[t], game.board)) celebrateSeal(t);
+    else if (!saved.seenGiantHint && needsGiant(t, game.tubes[t])) {
+      const name = nameOf(game.tubes[t][0]);
+      say('Not quite done! There\'s twice as much ' + name + ' on this board, so all of it goes in the tall tube.');
+      saved.seenGiantHint = true;
+      save();
+    }
     game.busy = false;
     if (needsLayout) {
       needsLayout = false;

@@ -1391,6 +1391,36 @@ input:focus-visible,
   display: block;
 }
 
+/* A regular tube full of a double color: a white badge where the cap would
+   go, with a tall and a short tube in that color, meaning "goes in the
+   tall tube". */
+.giant-hint {
+  display: none;
+  position: absolute;
+  z-index: 4;
+  top: calc(var(--w) * -0.28);
+  left: 50%;
+  width: calc(var(--w) * 0.66);
+  height: calc(var(--w) * 0.54);
+  margin-left: calc(var(--w) * -0.33);
+  place-items: center;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px var(--glass-edge), 0 3px 6px -2px rgba(30, 42, 94, 0.35);
+}
+
+.giant-hint svg {
+  width: 62%;
+  height: 80%;
+  fill: var(--seal);
+  stroke: var(--seal);
+}
+
+.tube.needs-giant .giant-hint {
+  display: grid;
+  animation: stopper 0.5s cubic-bezier(0.3, 1.7, 0.5, 1);
+}
+
 .tube.sealed.fresh .stopper {
   animation: stopper 0.5s cubic-bezier(0.3, 1.7, 0.5, 1);
 }

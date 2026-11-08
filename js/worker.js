@@ -1,5 +1,5 @@
 /* Runs level generation and the solver off the main thread. */
-if (!self.ColorLabCore) importScripts('core.js?v=32db550a8d');
+if (!self.ColorLabCore) importScripts('core.js?v=10e7f1ce64');
 
 self.onmessage = function (e) {
   const { id, type, payload } = e.data;

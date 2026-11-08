@@ -138,6 +138,25 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
       );
       await p.click('#restartBtn');
     }
+    // Giant tubes: a regular tube full of the double color gets a badge
+    // instead of a cap, and the first time the robot says why.
+    if (level === 16) {
+      const upTo = await p.evaluate(() => {
+        const C = window.ColorLabCore;
+        const lv = C.generateLevel(16);
+        const board = { caps: lv.caps, labels: lv.labels, big: lv.big, units: lv.cap };
+        const s = C.cloneTubes(lv.tubes);
+        for (let m = 0; m < lv.solution.length; m++) {
+          C.pour(s, board, lv.solution[m][0], lv.solution[m][1]);
+          if (s.some((t, i) => lv.caps[i] === lv.cap && t.length === lv.cap && lv.big.includes(t[0]) && t.every((c) => c === t[0]))) return m;
+        }
+        return -1;
+      });
+      for (const [f, t] of sol.solution.slice(0, upTo + 1)) await pour(p, f, t);
+      check((await p.locator('.tube.needs-giant').count()) === 1, 'a full tube of the double color gets the giant-tube badge');
+      check((await p.textContent('#say')).startsWith('Not quite done!'), 'the robot explains the double color once');
+      await p.click('#restartBtn');
+    }
     for (const [f, t] of sol.solution) await pour(p, f, t);
     await p.waitForSelector('#win:not([hidden])', { timeout: 5000 });
     const stars = await p.locator('#winStars i.on').count();
