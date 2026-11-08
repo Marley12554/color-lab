@@ -45,7 +45,7 @@
 
   // Tube proportions, in tube widths.
   const UNIT = 0.9; // one layer of liquid
-  const NECK = 0.62; // space above a full tube
+  const NECK = 0.32; // space above a full tube: a thin sliver, so full looks full
   const LIFT = 0.55; // room above each row for a lifted tube
   const GAP_X = 0.5;
   const GAP_Y = 0.5;
@@ -192,7 +192,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=e703d0c2b3');
+        worker = new Worker('js/worker.js?v=32db550a8d');
       }
     } catch (e) {
       worker = null;
@@ -982,11 +982,10 @@
 
   function segHtml(seg, isTop) {
     let inner = '';
+    // One shape per block of a color: it tells the color apart, and stays
+    // centered while the block grows or drains.
     if (seg.hidden) inner = '<span class="unit">?</span>';
-    else if (saved.shapes) {
-      const svg = '<svg viewBox="0 0 24 24" aria-hidden="true">' + SHAPES[game.palette[seg.color]] + '</svg>';
-      for (let k = 0; k < seg.n; k++) inner += '<span class="unit">' + svg + '</span>';
-    }
+    else if (saved.shapes) inner = '<span class="unit"><svg viewBox="0 0 24 24" aria-hidden="true">' + SHAPES[game.palette[seg.color]] + '</svg></span>';
     const style = '--n:' + seg.n + (seg.hidden ? '' : ';--c:' + colorOf(seg.color));
     return (
       '<span class="seg' + (isTop ? ' top' : '') + (seg.hidden ? ' hidden' : '') + '" style="' + style + '" data-color="' +
@@ -1120,16 +1119,28 @@
     const vw = right - left + 44;
     const vh = bottom + 80 - vy;
     const box = 'left:' + vx + '%;width:' + vw + '%;top:' + (vy / H) * 100 + '%;height:' + (vh / H) * 100 + '%';
-    // A solid drop of the melting color frozen into the top of the ice
-    // (with its shape when color shapes are on), so the color is never a
-    // guess through tinted ice.
-    const my = 27;
+    // A snowflake of the melting color frozen into the ice above the rim,
+    // so the color is never a guess through tinted ice, and it can't be
+    // mistaken for a labeled tube's dot. With color shapes on, the color's
+    // shape sits in its middle.
+    const fy = -2;
+    const arms = [];
+    for (let k = 0; k < 6; k++) {
+      const a = (Math.PI / 3) * k - Math.PI / 2;
+      const ax = Math.cos(a);
+      const ay = Math.sin(a);
+      const at = (d) => [50 + ax * d, fy + ay * d];
+      const twig = (d, side) => [50 + ax * d + Math.cos(a + side * 0.75) * 9, fy + ay * d + Math.sin(a + side * 0.75) * 9];
+      arms.push('M' + pts([at(5)]) + 'L' + pts([at(27)]));
+      arms.push('M' + pts([at(16)]) + 'L' + pts([twig(16, 1)]) + 'M' + pts([at(16)]) + 'L' + pts([twig(16, -1)]));
+    }
+    const flake = arms.join('');
     const marker =
-      '<circle cx="50" cy="' + my + '" r="21" fill="#ffffff" opacity="0.92"/>' +
-      '<circle cx="50" cy="' + my + '" r="16.5" fill="' + tint + '"/>' +
-      '<ellipse cx="44" cy="' + (my - 6) + '" rx="6" ry="3.5" fill="#ffffff" opacity="0.55"/>' +
+      '<path d="' + flake + '" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>' +
+      '<path d="' + flake + '" fill="none" stroke="' + tint + '" stroke-width="5" stroke-linecap="round"/>' +
+      '<circle cx="50" cy="' + fy + '" r="' + (saved.shapes ? 13 : 7) + '" fill="' + tint + '" stroke="#ffffff" stroke-width="3"/>' +
       (saved.shapes
-        ? '<g transform="translate(39.2 ' + (my - 10.8) + ') scale(0.9)" fill="#ffffff" opacity="0.95">' + SHAPES[game.palette[c]] + '</g>'
+        ? '<g transform="translate(41.6 ' + (fy - 8.4) + ') scale(0.7)" fill="#ffffff">' + SHAPES[game.palette[c]] + '</g>'
         : '');
     return (
       '<svg class="ice" style="' + box + '" viewBox="' + [vx, vy, vw, vh].join(' ') + '" preserveAspectRatio="none" aria-hidden="true">' +
@@ -1619,12 +1630,13 @@
       fillPoly(all, shine);
       // The bright line on the surface.
       fillPoly(clipDeep(all, -gx, -gy, -(surface + 4)), 'rgba(255,255,255,0.45)');
-      // Shapes and mystery marks, one per whole layer.
+      // Shapes and mystery marks, one per block, in the middle of it.
       edges.forEach((e) => {
         if (!e.s.hidden && !saved.shapes) return;
-        for (let u = e.from; u < e.to - 0.5; u++) {
-          const slice = clipDeep(clipDeep(shape, gx, gy, depth(Math.min(u + 1, e.to))), -gx, -gy, -depth(u));
-          if (slice.length < 3) continue;
+        if (e.to - e.from < 0.35) return;
+        {
+          const slice = clipDeep(clipDeep(shape, gx, gy, depth(e.to)), -gx, -gy, -depth(e.from));
+          if (slice.length < 3) return;
           const c = centroidOf(slice);
           ctx.save();
           ctx.shadowColor = 'rgba(0,0,0,0.25)';
@@ -1789,8 +1801,8 @@
   // ---------- Melting ice ----------
   //
   // When a pour finishes the color of some ice, the finished sample carries
-  // it out: it lifts, moves over to the ice (which brightens, to show where
-  // it's going), and pours itself over the outside of it. The ice cracks
+  // it out: after a beat where it and its ice glow together, it lifts, moves
+  // over to the ice, and pours itself over the outside of it. The ice cracks
   // and melts away. The empty sample then leaves the board along a smooth
   // arc, and the other tubes glide into their new places. The rules already
   // melted the ice and used the sample up; game.view keeps both looking as
@@ -1801,18 +1813,29 @@
     if (reduceMotion || !positions[t]) return false;
     const w = positions[t].w;
     const j = melted[0];
-    // A beat to see the finished color before anything moves.
-    await wait(650);
+    // A beat to see the finished color before anything moves, with the
+    // finished sample and its ice glowing together to show they're linked.
+    // The first melt a player ever sees takes longer and says why.
+    const first = !saved.seenMelt;
+    const beat = first ? 2200 : 900;
+    const glow = colorOf(color);
+    const pulse = [
+      { filter: 'drop-shadow(0 0 0px ' + glow + ')' },
+      { filter: 'drop-shadow(0 0 ' + w * 0.35 + 'px ' + glow + ')', offset: 0.4 },
+      { filter: 'drop-shadow(0 0 ' + w * 0.35 + 'px ' + glow + ')', offset: 0.7 },
+      { filter: 'drop-shadow(0 0 0px ' + glow + ')' },
+    ];
+    el.animate(pulse, { duration: beat, easing: 'ease-in-out' });
+    melted.forEach((m) => tubeEls[m].animate(pulse, { duration: beat, easing: 'ease-in-out' }));
+    if (first) {
+      const name = nameOf(color);
+      say(name.charAt(0).toUpperCase() + name.slice(1) + ' is finished, so it melts the ' + name + ' ice!');
+      saved.seenMelt = true;
+      save();
+    }
+    await wait(beat);
     if (!live()) return false;
 
-    // The ice it's headed for brightens for a moment.
-    const target = tubeEls[j].querySelector('.ice');
-    if (target) {
-      target.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(1.3)' }, { filter: 'brightness(1)' }], {
-        duration: 700,
-        easing: 'ease-in-out',
-      });
-    }
     const lifted = 'translate(0px, ' + -w * 0.36 + 'px)';
     await el.animate([{ transform: 'none' }, { transform: lifted }], { duration: 240, easing: 'ease-out', fill: 'forwards' }).finished.catch(() => {});
     el.style.transform = lifted;
