@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@600;700;800&display=swap">
-<link rel="stylesheet" href="css/style.css?v=10e7f1ce64">
+<link rel="stylesheet" href="css/style.css?v=46e2fb758a">
 </head>
 <body>
 <!-- page:start -->
@@ -197,12 +197,14 @@
 <div id="win" class="overlay" hidden>
   <div class="win-card" role="dialog" aria-modal="true" aria-labelledby="winTitle">
     <button id="winClose" class="win-close" type="button" aria-label="Close"></button>
+    <button id="winShare" class="win-close win-share" type="button" aria-label="Share your result"></button>
     <p class="win-eyebrow" id="winLab">Bubble Lab</p>
     <h2 id="winTitle">Experiment complete!</h2>
     <div class="stars" id="winStars" aria-label="3 stars"><i></i><i></i><i></i></div>
     <p id="winStats" class="win-stats">23 moves</p>
     <p id="winNote" class="win-note"></p>
     <p id="winCode" class="win-code" hidden></p>
+    <p id="shareNote" class="share-note" role="status" hidden></p>
     <div class="win-actions">
       <button id="nextBtn" class="big-btn primary" type="button"><span class="big-label">Next experiment</span></button>
       <div class="win-row">
@@ -214,9 +216,9 @@
 </div>
 <canvas id="confetti" class="confetti" aria-hidden="true"></canvas>
 
-<script src="js/core.js?v=10e7f1ce64"></script>
-<script src="js/sound.js?v=10e7f1ce64"></script>
-<script src="js/game.js?v=10e7f1ce64"></script>
+<script src="js/core.js?v=46e2fb758a"></script>
+<script src="js/sound.js?v=46e2fb758a"></script>
+<script src="js/game.js?v=46e2fb758a"></script>
 <!-- page:end -->
 </body>
 </html>

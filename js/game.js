@@ -192,7 +192,7 @@
         const blob = new Blob([window.COLOR_LAB_WORKER_SRC], { type: 'text/javascript' });
         worker = new Worker(URL.createObjectURL(blob));
       } else {
-        worker = new Worker('js/worker.js?v=10e7f1ce64');
+        worker = new Worker('js/worker.js?v=46e2fb758a');
       }
     } catch (e) {
       worker = null;
@@ -2350,6 +2350,8 @@
     else if (game.helped && moves <= allowed) note = "Robot's record: " + par + ' moves. 3 stars: no hints or extra tube.';
     else note = "Robot's record: " + par + ' moves. 3 stars: ' + allowed + ' moves or fewer.';
     $('winNote').textContent = note;
+    game.result = { stars, moves };
+    $('shareNote').hidden = true;
     const code = $('winCode');
     code.hidden = isLevel;
     if (!isLevel) code.innerHTML = 'Lab code <b>' + customCode(game.custom) + '</b> · share it so friends can try this mix';
@@ -2659,8 +2661,84 @@
     return { screen, game: runSnapshot() };
   }
 
+  // ---------- Sharing ----------
+
+  // Where shared links point: this page when it's on the open web, or the
+  // public site when the game runs somewhere private (like a claude.ai
+  // artifact) or from disk.
+  const PUBLIC_URL = 'https://marley12554.github.io/color-lab/';
+
+  function shareBase() {
+    const here = location.protocol.startsWith('http') && !/claude\.ai|claudeusercontent|anthropic/.test(location.host);
+    return here ? location.origin + location.pathname : PUBLIC_URL;
+  }
+
+  // What the board was, in words, and a link that opens the same one.
+  function shareWhat() {
+    if (game.mode === 'level') return { name: 'Experiment ' + game.level, link: shareBase() + '?level=' + game.level };
+    const c = game.custom;
+    const preset = PRESETS.find((p) => presetMatches(p, Object.assign({ trick: 1 }, c)));
+    const name = preset ? 'a ' + preset.name + ' mix' : (c.colors === 8 || c.colors === 11 ? 'an ' : 'a ') + c.colors + '-color mix';
+    return { name, link: shareBase() + '?code=' + encodeURIComponent(customCode(c)) };
+  }
+
+  function shareText() {
+    const r = game.result;
+    const what = shareWhat();
+    const stars = '★'.repeat(r.stars) + '☆'.repeat(3 - r.stars);
+    const moves = r.moves + (r.moves === 1 ? ' move' : ' moves');
+    return { text: 'I finished ' + what.name + ' in Color Lab ' + stars + ' in ' + moves + '. Can you beat that?', link: what.link };
+  }
+
+  function shareNote(text) {
+    const note = $('shareNote');
+    note.textContent = text;
+    note.hidden = false;
+  }
+
+  // The system share sheet where there is one (phones, Safari, Edge);
+  // otherwise the message and link are copied to paste anywhere.
+  async function shareResult() {
+    if (!game.result) return;
+    const { text, link } = shareText();
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Color Lab', text, url: link });
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return; // closed the sheet
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text + ' ' + link);
+      shareNote('Copied! Paste it anywhere to send it.');
+    } catch (e) {
+      shareNote(text + ' ' + link);
+    }
+  }
+
+  // A shared link: ?level=16 opens that experiment, ?code=... builds that mix.
+  function openSharedLink() {
+    const q = new URLSearchParams(location.search);
+    const level = parseInt(q.get('level'), 10);
+    const parsed = q.get('code') ? parseCode(q.get('code')) : null;
+    const spec = parsed && !parsed.outdated ? parsed : null;
+    if (!(level >= 1 && level <= 9999) && !spec) return false;
+    try {
+      history.replaceState(null, '', location.pathname); // a reload goes home
+    } catch (e) {
+      /* fine either way */
+    }
+    if (spec) startCustom(spec);
+    else startLevel(level);
+    return true;
+  }
+
   function start(data) {
     wire();
+    $('winShare').innerHTML =
+      '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.8"/><circle cx="6" cy="12" r="2.8"/><circle cx="18" cy="19" r="2.8"/><path d="M8.5 10.7 15.5 6.3M8.5 13.3l7 4.4"/></svg>';
+    $('winShare').addEventListener('click', shareResult);
     setSound(saved.sound);
     setShapes(saved.shapes);
     startWorker();
@@ -2673,6 +2751,7 @@
     } else {
       show('home');
     }
+    openSharedLink();
   }
 
   const hot = window.claude && window.claude.hot;

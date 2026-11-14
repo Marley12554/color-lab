@@ -1765,6 +1765,25 @@ input:focus-visible,
   stroke-linecap: round;
 }
 
+/* The share button mirrors the close button, in the other corner. */
+.win-share {
+  right: auto;
+  left: 12px;
+  color: var(--go);
+}
+
+.win-share svg {
+  stroke-width: 2.2;
+}
+
+.share-note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
 .confetti {
   position: fixed;
   inset: 0;

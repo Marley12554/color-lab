@@ -385,6 +385,40 @@ const url = process.argv[2] || 'http://localhost:8765/index.html';
     await ctx.close();
   }
 
+  // Sharing: the system share sheet gets a "can you beat that?" message
+  // and a link; the link opens the same experiment or the same mix.
+  {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const q = await ctx.newPage();
+    q.on('pageerror', (e) => errors.push(String(e)));
+    await q.addInitScript((s) => {
+      localStorage.getItem('color-lab-v1') || localStorage.setItem('color-lab-v1', JSON.stringify(s));
+      navigator.share = async (data) => {
+        window.__shared = data;
+      };
+    }, progressTo(2));
+    await q.goto(url);
+    await q.click('#playBtn');
+    await q.waitForSelector('.tube');
+    const sol = await q.evaluate(() => window.ColorLabCore.generateLevel(2).solution);
+    for (const [f, t] of sol) await pour(q, f, t);
+    await q.waitForSelector('#win:not([hidden])', { timeout: 5000 });
+    await q.click('#winShare');
+    const shared = await q.evaluate(() => window.__shared);
+    check(
+      shared && /Experiment 2 in Color Lab/.test(shared.text) && /Can you beat that\?/.test(shared.text) && /\?level=2$/.test(shared.url),
+      'Share opens the share sheet with the result and a link: ' + (shared && shared.text + ' ' + shared.url)
+    );
+    const base = url.replace(/index\.html.*$/, 'index.html');
+    await q.goto(base + '?level=5');
+    await q.waitForSelector('.tube');
+    check((await q.textContent('#levelTitle')).replace(/\s/g, ' ') === 'Experiment 5', 'a shared level link opens that experiment');
+    await q.goto(base + '?code=08421000-1234');
+    await q.waitForSelector('.tube');
+    check((await q.textContent('#levelTitle')).includes('08421000-1234'), 'a shared mix link builds that mix');
+    await ctx.close();
+  }
+
   // Pause and resume, and boards that differ from mix to mix.
   {
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
